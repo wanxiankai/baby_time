@@ -1,0 +1,170 @@
+# Baby Time iOS MVP 配置与运行说明
+
+## 1. 当前实现说明
+
+当前 iOS MVP 是一个原生 SwiftUI 模拟器版本，用于先验证产品闭环：
+
+- 本地邮箱账号注册/登录。
+- 创建和切换孩子档案。
+- 时间线自动归档。
+- 添加模拟器样例照片。
+- 从系统相册导入照片。
+- 创建照片集。
+- 创建 tag 和分类。
+- 给照片绑定 tag/分类。
+- 录音、保存音频、绑定照片集。
+- 音频播放。
+- 基础搜索。
+- App Shortcuts/App Intents：打开时间线、打开录音入口。
+- XCTest 单元测试覆盖账号、孩子档案、时间线、照片集、tag/分类和搜索。
+
+MVP 暂未接入真实后端、云同步和对象存储。上线前需要把 `AppStore` 中的本地 JSON 存储替换为 API client，并按 `launch_preparation_checklist.md` 配置后端、PostgreSQL 和对象存储。
+
+## 2. Xcode 与模拟器配置
+
+当前机器检测结果：
+
+- Xcode 版本：16.4。
+- 当前没有可用 iOS Simulator 设备。
+- `xcrun simctl list devices available` 只返回 `Unavailable: com.apple.CoreSimulator.SimRuntime.iOS-18-5`。
+
+需要在 Xcode 中安装 iOS Simulator Runtime：
+
+1. 打开 Xcode。
+2. 进入 `Xcode > Settings... > Platforms`。
+3. 安装一个可用 iOS runtime，例如 iOS 18.5 或 Xcode 当前支持的最新 iOS Simulator。
+4. 安装完成后进入 `Window > Devices and Simulators`。
+5. 在 `Simulators` 页新增设备，例如：
+   - Device Type：`iPhone 16` 或 `iPhone 15`
+   - OS Version：刚安装的 iOS runtime
+
+Apple 官方入口：
+
+- [Xcode 下载](https://developer.apple.com/xcode/)
+- [Apple Developer Documentation](https://developer.apple.com/documentation/)
+- [Creating your first app intent](https://developer.apple.com/documentation/appintents/creating-your-first-app-intent)
+- [Making actions and content discoverable and widely available](https://developer.apple.com/documentation/appintents/making-actions-and-content-discoverable-and-widely-available)
+
+## 3. 本地构建命令
+
+在项目根目录执行：
+
+```text
+xcodebuild -project BabyTime.xcodeproj -scheme BabyTime -destination 'generic/platform=iOS Simulator' -derivedDataPath ./DerivedData build
+```
+
+编译测试包：
+
+```text
+xcodebuild -project BabyTime.xcodeproj -scheme BabyTime -destination 'generic/platform=iOS Simulator' -derivedDataPath ./DerivedData build-for-testing
+```
+
+安装模拟器 runtime 并创建设备后，执行单元测试：
+
+```text
+xcodebuild -project BabyTime.xcodeproj -scheme BabyTime -destination 'platform=iOS Simulator,name=iPhone 16' -derivedDataPath ./DerivedData test
+```
+
+如果设备名不同，先查看可用设备：
+
+```text
+xcrun simctl list devices available
+```
+
+然后替换 `name=iPhone 16`。
+
+## 4. Xcode 项目配置
+
+当前项目：
+
+- Project：`BabyTime.xcodeproj`
+- Scheme：`BabyTime`
+- Bundle ID：`com.babytime.mvp`
+- Minimum iOS：17.0
+- Display Name：`Baby Time`
+
+真实发布前需要在 Xcode 中配置：
+
+1. 打开 `BabyTime.xcodeproj`。
+2. 选择 `BabyTime` target。
+3. 进入 `Signing & Capabilities`。
+4. 选择你的 Apple Developer Team。
+5. 将 Bundle ID 改成你的真实 ID，例如 `com.yourcompany.babytime`。
+
+Apple Developer 配置地址：
+
+- [Apple Developer Account](https://developer.apple.com/account/)
+- [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/)
+- [App Store Connect](https://appstoreconnect.apple.com/)
+
+## 5. 权限配置
+
+当前 `BabyTime/Info.plist` 已配置：
+
+- `NSMicrophoneUsageDescription`
+- `NSPhotoLibraryUsageDescription`
+
+如果后续增加相机拍摄，需要补充：
+
+```text
+NSCameraUsageDescription
+```
+
+如果后续增加后台上传，需要评估：
+
+```text
+UIBackgroundModes
+```
+
+## 6. 后端接入配置
+
+当前 iOS MVP 不需要后端即可运行。接入真实服务时建议新增环境配置文件或 build settings：
+
+```text
+API_BASE_URL=
+APP_ENV=staging|production
+SENTRY_DSN=
+ANALYTICS_ENABLED=
+```
+
+对应后端和云资源配置详见：
+
+- `launch_preparation_checklist.md`
+- `architecture_technical_plan.md`
+- `mvp_task_breakdown.md`
+
+## 7. MVP 验收路径
+
+模拟器可用后，手动验收路径：
+
+1. 注册本地账号。
+2. 创建孩子档案。
+3. 时间线页点击添加样例照片。
+4. 相册页从系统相册导入照片。
+5. 相册页选择照片并创建照片集。
+6. 我的页创建 tag 和分类。
+7. 照片详情绑定 tag 和分类。
+8. 录音页录制声音并绑定到照片集。
+9. 照片集详情播放绑定音频。
+10. 搜索页搜索照片标题、照片集、tag、分类和音频。
+11. 使用 Shortcuts 搜索 Baby Time，验证“打开时间线”和“记录声音”快捷入口。
+
+自动化验收：
+
+- `StoreTests` 覆盖本地核心业务逻辑。
+- 安装可用模拟器 runtime 后执行 `xcodebuild test`。
+
+## 8. 上线前必须补齐
+
+当前版本适合模拟器和早期产品验证。正式上线前必须补齐：
+
+- 真实后端 API。
+- PostgreSQL 数据库。
+- 私有对象存储。
+- 短期签名上传/下载 URL。
+- 密码哈希和 token 登录。
+- 云端权限校验。
+- 崩溃监控。
+- 隐私政策和用户协议。
+- App Store Connect App 隐私问卷。
+- TestFlight 内测配置。
