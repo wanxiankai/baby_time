@@ -8,6 +8,7 @@ struct BabyTimeApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(store)
+                .tint(BabyTimeTheme.teal)
                 .onAppear {
                     routeFromIntentIfNeeded()
                 }

@@ -22,6 +22,7 @@ struct RootView: View {
         } message: {
             Text(store.errorMessage ?? "")
         }
+        .foregroundStyle(BabyTimeTheme.ink)
     }
 }
 
@@ -44,8 +45,9 @@ struct AuthView: View {
                         .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
                     Text("Baby Time")
                         .font(.system(size: 44, weight: .bold))
+                        .foregroundStyle(BabyTimeTheme.ink)
                     Text("带声音的成长档案")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(BabyTimeTheme.teal)
                 }
 
                 Picker("模式", selection: $isRegistering) {
@@ -77,7 +79,7 @@ struct AuthView: View {
                     Label(isRegistering ? "创建账号" : "登录", systemImage: "person.crop.circle.badge.checkmark")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PrimaryBabyTimeButton())
 
                 Text("模拟器 MVP 使用本地账号和本地文件存储。后续接入后端后，账号、云同步和对象存储会替换这里的本地实现。")
                     .font(.footnote)
@@ -85,6 +87,7 @@ struct AuthView: View {
                 Spacer()
             }
             .padding(24)
+            .background(BabyTimeTheme.heroGradient.ignoresSafeArea())
         }
     }
 }
@@ -153,6 +156,7 @@ struct MainTabView: View {
                 .tabItem { Label(AppTab.settings.title, systemImage: AppTab.settings.icon) }
                 .tag(AppTab.settings)
         }
+        .tint(BabyTimeTheme.coral)
     }
 }
 
@@ -189,11 +193,12 @@ struct TimelineView: View {
                                     .foregroundStyle(.tertiary)
                             }
                             .padding(12)
-                            .background(.background, in: RoundedRectangle(cornerRadius: 8))
+                            .background(BabyTimeTheme.card, in: RoundedRectangle(cornerRadius: 8))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 8)
-                                    .stroke(.quaternary, lineWidth: 1)
+                                    .stroke(BabyTimeTheme.border, lineWidth: 1)
                             }
+                            .shadow(color: BabyTimeTheme.teal.opacity(0.08), radius: 8, y: 3)
                         }
                         .buttonStyle(.plain)
                     }
@@ -202,7 +207,7 @@ struct TimelineView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .scrollIndicators(.visible)
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background(BabyTimeTheme.page)
             .navigationTitle(store.selectedChild?.nickname ?? "时间线")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -286,7 +291,7 @@ struct AlbumView: View {
                                 PhotoRow(photo: photo)
                                 Spacer()
                                 Image(systemName: selectedPhotoIDs.contains(photo.id) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(selectedPhotoIDs.contains(photo.id) ? .blue : .secondary)
+                                    .foregroundStyle(selectedPhotoIDs.contains(photo.id) ? BabyTimeTheme.coral : .secondary)
                             }
                         }
                         .buttonStyle(.plain)
@@ -650,9 +655,9 @@ struct PhotoThumb: View {
             } else {
                 ZStack {
                     Rectangle()
-                        .fill(.quaternary)
+                        .fill(BabyTimeTheme.tealSoft.opacity(0.45))
                     Image(systemName: "photo")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(BabyTimeTheme.teal)
                 }
             }
         }
