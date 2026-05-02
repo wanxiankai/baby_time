@@ -14,6 +14,7 @@
 		100000000000000000000105 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000005 /* Views.swift */; };
 		100000000000000000000106 /* BabyTimeIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000006 /* BabyTimeIntents.swift */; };
 		100000000000000000000107 /* StoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000007 /* StoreTests.swift */; };
+		100000000000000000000108 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000011 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -37,6 +38,7 @@
 		100000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		100000000000000000000009 /* BabyTime.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BabyTime.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		100000000000000000000010 /* BabyTimeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BabyTimeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		100000000000000000000011 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -64,6 +66,7 @@
 				100000000000000000000005 /* Views.swift */,
 				100000000000000000000006 /* BabyTimeIntents.swift */,
 				100000000000000000000008 /* Info.plist */,
+				100000000000000000000011 /* Assets.xcassets */,
 			);
 			path = BabyTime;
 			sourceTree = "<group>";
@@ -152,7 +155,7 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		100000000000000000000703 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		100000000000000000000703 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000108 /* Assets.xcassets in Resources */); runOnlyForDeploymentPostprocessing = 0; };
 		100000000000000000000704 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 

@@ -36,6 +36,12 @@ struct AuthView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 8) {
+                    Image("AppLogo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 96, height: 96)
+                        .clipShape(RoundedRectangle(cornerRadius: 22))
+                        .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
                     Text("Baby Time")
                         .font(.system(size: 44, weight: .bold))
                     Text("带声音的成长档案")
