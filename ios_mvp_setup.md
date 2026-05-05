@@ -18,7 +18,14 @@
 - App Shortcuts/App Intents：打开时间线、打开录音入口。
 - XCTest 单元测试覆盖账号、孩子档案、时间线、照片集、tag/分类和搜索。
 
-MVP 暂未接入真实后端、云同步和对象存储。上线前需要把 `AppStore` 中的本地 JSON 存储替换为 API client，并按 `launch_preparation_checklist.md` 配置后端、PostgreSQL 和对象存储。
+MVP 暂未接入真实后端、云同步和对象存储。上线前需要把 `AppStore` 中的本地 JSON 存储替换为 API client，并按最新产品方案接入本机索引模式、授权云端备份模式、后端索引 API 和 PostgreSQL。
+
+根据最新产品方案，正式版本不应默认把照片原文件上传到 Baby Time 后端或自有对象存储。后续改造目标是：
+
+- 本机索引模式：保存系统相册资产引用和整理信息，照片仍在用户手机相册。
+- 授权云端备份模式：用户授权云端存储服务后，照片备份到用户自己的云端目录。
+- Baby Time 后端只保存账号、孩子档案、时间线、照片索引、照片集、tag、分类和云端定位信息。
+- 当前 App Documents 中复制照片的实现仅用于模拟器验证，需要替换为真实相册资产引用读取。
 
 ## 2. Xcode 与模拟器配置
 
@@ -110,13 +117,13 @@ Apple Developer 配置地址：
 NSCameraUsageDescription
 ```
 
-如果后续增加后台上传，需要评估：
+如果后续增加授权云端备份的后台任务，需要评估：
 
 ```text
 UIBackgroundModes
 ```
 
-## 6. 后端接入配置
+## 6. 后端与云端备份接入配置
 
 当前 iOS MVP 不需要后端即可运行。接入真实服务时建议新增环境配置文件或 build settings：
 
@@ -125,6 +132,15 @@ API_BASE_URL=
 APP_ENV=staging|production
 SENTRY_DSN=
 ANALYTICS_ENABLED=
+```
+
+如果接入用户云端备份，还需要按 Provider 配置客户端授权信息，例如：
+
+```text
+GOOGLE_DRIVE_CLIENT_ID=
+ONEDRIVE_CLIENT_ID=
+DROPBOX_APP_KEY=
+ICLOUD_CONTAINER_ID=
 ```
 
 对应后端和云资源配置详见：
@@ -160,10 +176,13 @@ ANALYTICS_ENABLED=
 
 - 真实后端 API。
 - PostgreSQL 数据库。
-- 私有对象存储。
-- 短期签名上传/下载 URL。
+- 本机索引模式。
+- 至少一种主流云端存储授权与备份。
+- 云端备份队列、进度、失败重试和授权失效处理。
+- 相册原图删除、相册权限撤销和有限照片访问变化处理。
+- Baby Time 托管存储如需上线，应作为可选模式单独评估。
 - 密码哈希和 token 登录。
-- 云端权限校验。
+- 云端 Provider 最小权限校验。
 - 崩溃监控。
 - 隐私政策和用户协议。
 - App Store Connect App 隐私问卷。

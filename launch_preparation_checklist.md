@@ -82,33 +82,33 @@ MVP 建议：
 - 不引入复杂分库分表。
 - 通过索引和分页控制查询成本。
 
-### 2.3 对象存储
+### 2.3 用户云端备份服务
 
 需要准备：
 
-- S3 兼容对象存储账号。
-- staging 私有桶。
-- production 私有桶。
-- Access Key 和 Secret Key。
-- Bucket region。
-- Endpoint。
+- 至少一种主流云端存储服务的开发者应用配置。
+- iCloud Drive、Google Drive、OneDrive、Dropbox 中优先选择的首发 Provider。
+- OAuth redirect URI 或 iOS URL Scheme。
+- 客户端授权所需的 App Key / Client ID。
+- Provider 权限范围说明。
+- 测试账号和测试云端目录。
 
 必须配置：
 
-- 桶默认私有。
-- 禁止公开读。
-- CORS 允许移动端直传所需方法。
-- 生命周期规则：清理临时上传、失败上传和过期处理文件。
-- 服务端只能下发短期签名上传/下载 URL。
+- 优先使用 App Folder、App 专属目录或最小必要权限。
+- 不申请完整云盘访问，除非产品功能确实需要并完成额外审核。
+- OAuth token、云端授权凭据和安全书签只保存在设备安全存储中。
+- Baby Time 后端不保存第三方云端访问 token 明文。
+- 测试授权过期、撤权、空间不足、文件被删除或移动的错误处理。
 
 建议目录：
 
 ```text
-users/{user_id}/children/{child_id}/photos/{photo_id}/original
-users/{user_id}/children/{child_id}/photos/{photo_id}/display
-users/{user_id}/children/{child_id}/photos/{photo_id}/thumbnail
-users/{user_id}/children/{child_id}/audio/{audio_id}/source
+BabyTime/{child_id}/{yyyy}/{MM}/{photo_id}_{taken_at_yyyyMMdd_HHmmss}.{ext}
+BabyTime/{child_id}/manifest.json
 ```
+
+Baby Time 托管对象存储不作为 MVP 默认能力。如后续提供 Baby Time 托管模式，再单独准备私有对象存储、短期签名 URL、生命周期规则和 CDN。
 
 ### 2.4 域名
 
@@ -181,7 +181,8 @@ MVP 只采集非敏感事件：
 
 - 注册成功。
 - 创建孩子档案。
-- 上传照片成功/失败。
+- 导入照片成功/失败。
+- 云端备份成功/失败。
 - 创建照片集。
 - 录音成功/失败。
 - 音频播放。
@@ -326,6 +327,10 @@ e2e smoke test
 - 收集哪些数据。
 - 为什么收集。
 - 照片、音频、孩子资料如何存储。
+- 本机索引模式下，照片仍在用户系统相册中，Baby Time 只保存索引。
+- 授权云端备份模式下，照片保存到用户授权的第三方云端存储服务，Baby Time 不托管照片原文件。
+- 用户删除系统相册原图、云端备份文件或撤销权限后的影响。
+- Baby Time 删除账号时默认删除 App 内数据和服务端索引，不默认删除用户系统相册或用户云盘文件。
 - 是否共享给第三方。
 - 如何删除账号和数据。
 - 不将儿童照片和音频用于广告训练或公开推荐。
@@ -337,7 +342,7 @@ e2e smoke test
 - 使用邮箱注册登录，暂不接短信。
 - 使用单体 API 服务，暂不拆 Worker。
 - 使用 PostgreSQL 承担任务状态和基础搜索。
-- 使用对象存储短期签名 URL，暂不接 CDN。
+- 首版优先使用本机索引和用户云端备份，暂不启用 Baby Time 托管对象存储和 CDN。
 - 使用托管数据库自动备份，减少运维成本。
 - 日志设置保留周期，避免日志成本持续增长。
 - staging 环境使用低配资源，非测试时可暂停或缩容。
