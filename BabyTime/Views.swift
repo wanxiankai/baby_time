@@ -35,58 +35,62 @@ struct AuthView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Image("AppLogo")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 96, height: 96)
-                        .clipShape(RoundedRectangle(cornerRadius: 22))
-                        .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
-                    Text("Baby Time")
-                        .font(.system(size: 44, weight: .bold))
-                        .foregroundStyle(BabyTimeTheme.ink)
-                    Text("带声音的成长档案")
-                        .foregroundStyle(BabyTimeTheme.teal)
-                }
-
-                Picker("模式", selection: $isRegistering) {
-                    Text("注册").tag(true)
-                    Text("登录").tag(false)
-                }
-                .pickerStyle(.segmented)
-
-                TextField("邮箱", text: $email)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.emailAddress)
-                    .textFieldStyle(.roundedBorder)
-
-                SecureField("密码", text: $password)
-                    .textFieldStyle(.roundedBorder)
-
-                if isRegistering {
-                    TextField("称呼", text: $displayName)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                Button {
-                    if isRegistering {
-                        store.register(email: email, password: password, displayName: displayName)
-                    } else {
-                        store.login(email: email, password: password)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Image("AppLogo")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 80, height: 80)
+                            .clipShape(RoundedRectangle(cornerRadius: 18))
+                            .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
+                        Text("Baby Time")
+                            .font(.system(size: 38, weight: .bold))
+                            .foregroundStyle(BabyTimeTheme.ink)
+                        Text("带声音的成长档案")
+                            .foregroundStyle(BabyTimeTheme.teal)
                     }
-                } label: {
-                    Label(isRegistering ? "创建账号" : "登录", systemImage: "person.crop.circle.badge.checkmark")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(PrimaryBabyTimeButton())
 
-                Text("模拟器 MVP 使用本地账号和本地文件存储。后续接入后端后，账号、云同步和对象存储会替换这里的本地实现。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                Spacer()
+                    Picker("模式", selection: $isRegistering) {
+                        Text("注册").tag(true)
+                        Text("登录").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+
+                    TextField("邮箱", text: $email)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.emailAddress)
+                        .textFieldStyle(.roundedBorder)
+
+                    SecureField("密码", text: $password)
+                        .textFieldStyle(.roundedBorder)
+
+                    if isRegistering {
+                        TextField("称呼", text: $displayName)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    Button {
+                        if isRegistering {
+                            store.register(email: email, password: password, displayName: displayName)
+                        } else {
+                            store.login(email: email, password: password)
+                        }
+                    } label: {
+                        Label(isRegistering ? "创建账号" : "登录", systemImage: "person.crop.circle.badge.checkmark")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(PrimaryBabyTimeButton())
+
+                    Text("隐私优先：正式版可只记录系统相册引用，或备份到你授权的云盘；Baby Time 默认不托管儿童照片原文件。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(24)
+            .scrollDismissesKeyboard(.interactively)
             .background(BabyTimeTheme.heroGradient.ignoresSafeArea())
         }
     }
@@ -98,10 +102,19 @@ struct ChildSetupView: View {
     @State private var birthday = Calendar.current.date(byAdding: .month, value: -6, to: Date()) ?? Date()
     @State private var gender = "未设置"
     @State private var note = ""
+    @State private var storageMode: MediaStorageMode = .localReference
+    @State private var cloudProvider: CloudProvider = .iCloudDrive
 
     var body: some View {
         NavigationStack {
             Form {
+                Section("隐私说明") {
+                    Label("Baby Time 默认不托管儿童照片原文件", systemImage: "lock.shield")
+                    Text("你可以只在本机记录系统相册引用，也可以把照片备份到自己授权的云端存储。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("孩子档案") {
                     TextField("昵称", text: $nickname)
                     DatePicker("生日", selection: $birthday, displayedComponents: .date)
@@ -111,6 +124,31 @@ struct ChildSetupView: View {
                         Text("女孩").tag("女孩")
                     }
                     TextField("备注", text: $note, axis: .vertical)
+                }
+
+                Section("媒体保存方式") {
+                    Picker("保存方式", selection: $storageMode) {
+                        ForEach(MediaStorageMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    ForEach(MediaStorageMode.allCases) { mode in
+                        if mode == storageMode {
+                            Text(mode.subtitle)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if storageMode == .userCloudBackup {
+                        Picker("云端服务", selection: $cloudProvider) {
+                            ForEach(CloudProvider.allCases) { provider in
+                                Label(provider.title, systemImage: provider.icon).tag(provider)
+                            }
+                        }
+                        Text("当前 MVP 使用模拟授权状态，后续接入真实云端 Provider SDK。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 if !store.state.children.isEmpty {
@@ -127,7 +165,7 @@ struct ChildSetupView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
-                        store.createChild(nickname: nickname, birthday: birthday, gender: gender, note: note)
+                        store.createChild(nickname: nickname, birthday: birthday, gender: gender, note: note, storageMode: storageMode, cloudProvider: storageMode == .userCloudBackup ? cloudProvider : nil)
                     }
                 }
             }
@@ -256,7 +294,7 @@ struct AlbumView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("上传") {
+                Section("导入") {
                     Button {
                         store.addSamplePhoto(title: "模拟器照片", note: "用于没有相册素材时快速体验。")
                     } label: {
@@ -267,12 +305,42 @@ struct AlbumView: View {
                         Label("从系统相册导入", systemImage: "photo")
                     }
                     .onChange(of: pickerItem) { _, newValue in
-                        Task {
-                            if let data = try? await newValue?.loadTransferable(type: Data.self) {
-                                await MainActor.run {
-                                    store.importPhoto(data: data, title: "导入照片", note: "")
+                        guard let newValue else { return }
+                        if let identifier = newValue.itemIdentifier {
+                            store.importPhoto(assetIdentifier: identifier, title: "导入照片", note: "")
+                        } else {
+                            store.errorMessage = "系统未返回相册资产标识，无法按本机索引导入。"
+                        }
+                    }
+                    Text("当前导入会保存系统相册引用；若宝宝档案启用云端备份，会模拟创建备份任务。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("保存方式") {
+                    if let child = store.selectedChild {
+                        LabeledContent("当前宝宝", value: child.defaultMediaStorageMode.title)
+                        if let account = store.selectedCloudAccount {
+                            LabeledContent("云端服务", value: "\(account.provider.title) · \(account.authorizationStatus.title)")
+                        }
+                    }
+                    Picker("切换方式", selection: Binding(
+                        get: { store.selectedChild?.defaultMediaStorageMode ?? .localReference },
+                        set: { store.updateSelectedChildStorageMode($0, provider: .iCloudDrive) }
+                    )) {
+                        ForEach(MediaStorageMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    if store.selectedChild?.defaultMediaStorageMode == .userCloudBackup {
+                        Menu {
+                            ForEach(CloudProvider.allCases) { provider in
+                                Button(provider.title) {
+                                    store.updateSelectedChildStorageMode(.userCloudBackup, provider: provider)
                                 }
                             }
+                        } label: {
+                            Label("选择云端服务", systemImage: "cloud")
                         }
                     }
                 }
@@ -341,17 +409,45 @@ struct PhotoDetailView: View {
     var body: some View {
         List {
             Section {
-                if let image = store.image(for: photo) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
+                PhotoFullImage(photo: photo)
             }
             Section("信息") {
                 LabeledContent("标题", value: photo.title)
                 LabeledContent("拍摄时间", value: photo.takenAt.formatted(date: .abbreviated, time: .omitted))
                 Text(photo.note)
+            }
+            Section("媒体保存") {
+                LabeledContent("保存方式", value: photo.storageMode.title)
+                LabeledContent("本机状态", value: photo.localAssetStatus.title)
+                if let provider = photo.cloudProvider {
+                    LabeledContent("云端服务", value: provider.title)
+                    LabeledContent("备份状态", value: photo.cloudSyncStatus.title)
+                    if let cloudPath = photo.cloudPath {
+                        Text(cloudPath)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if photo.cloudSyncStatus != .synced {
+                        Button {
+                            store.startCloudBackup(for: photo.id)
+                        } label: {
+                            Label("重新备份", systemImage: "arrow.clockwise")
+                        }
+                    }
+                }
+                Menu {
+                    Button("标记原照片不存在") {
+                        store.markLocalAssetStatus(photoID: photo.id, status: .missing)
+                    }
+                    Button("标记相册权限失效") {
+                        store.markLocalAssetStatus(photoID: photo.id, status: .permissionDenied)
+                    }
+                    Button("恢复为可用") {
+                        store.markLocalAssetStatus(photoID: photo.id, status: .available)
+                    }
+                } label: {
+                    Label("模拟本机状态", systemImage: "wrench.and.screwdriver")
+                }
             }
             TaxonomyPicker(photo: photo)
             Section("绑定音频") {
@@ -585,9 +681,14 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("云同步状态") {
-                    Label("本地 MVP 模式", systemImage: "externaldrive")
-                    Text("账号、照片、音频和搜索数据当前保存在模拟器本地。真实上线需要接入 API、PostgreSQL 和对象存储。")
+                Section("隐私与媒体保存") {
+                    if let child = store.selectedChild {
+                        LabeledContent("当前模式", value: child.defaultMediaStorageMode.title)
+                    }
+                    if let account = store.selectedCloudAccount {
+                        LabeledContent("云端服务", value: "\(account.provider.title) · \(account.authorizationStatus.title)")
+                    }
+                    Text("照片默认不上传到 Baby Time 后端。本机索引模式只记录系统相册引用；授权云端备份模式会把照片备份到你授权的云端目录。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -637,7 +738,42 @@ struct PhotoRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                HStack(spacing: 6) {
+                    Label(photo.storageMode.title, systemImage: photo.storageMode == .localReference ? "iphone" : "cloud")
+                    if photo.localAssetStatus != .available {
+                        Text(photo.localAssetStatus.title)
+                    } else if photo.storageMode == .userCloudBackup {
+                        Text(photo.cloudSyncStatus.title)
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(photo.localAssetStatus == .available ? .secondary : BabyTimeTheme.coral)
             }
+        }
+    }
+}
+
+struct PhotoFullImage: View {
+    @EnvironmentObject private var store: AppStore
+    let photo: MemoryPhoto
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                PhotoMissingPlaceholder(photo: photo)
+                    .frame(maxWidth: .infinity, minHeight: 220)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }
+        .task(id: "\(photo.id)-\(photo.localAssetStatus.rawValue)-\(photo.cloudSyncStatus.rawValue)") {
+            image = nil
+            image = await store.requestImage(for: photo, targetSize: CGSize(width: 1100, height: 1100))
         }
     }
 }
@@ -645,22 +781,62 @@ struct PhotoRow: View {
 struct PhotoThumb: View {
     @EnvironmentObject private var store: AppStore
     let photo: MemoryPhoto?
+    @State private var image: UIImage?
 
     var body: some View {
         Group {
-            if let photo, let image = store.image(for: photo) {
+            if let image {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
+            } else if let photo {
+                PhotoMissingPlaceholder(photo: photo)
             } else {
-                ZStack {
-                    Rectangle()
-                        .fill(BabyTimeTheme.tealSoft.opacity(0.45))
-                    Image(systemName: "photo")
-                        .foregroundStyle(BabyTimeTheme.teal)
-                }
+                PhotoMissingPlaceholder(photo: nil)
             }
         }
+        .task(id: photo.map { "\($0.id)-\($0.localAssetStatus.rawValue)-\($0.cloudSyncStatus.rawValue)" }) {
+            guard let photo else {
+                image = nil
+                return
+            }
+            image = nil
+            image = await store.requestImage(for: photo, targetSize: CGSize(width: 220, height: 220))
+        }
+    }
+}
+
+struct PhotoMissingPlaceholder: View {
+    let photo: MemoryPhoto?
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(BabyTimeTheme.tealSoft.opacity(0.45))
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundStyle(BabyTimeTheme.teal)
+                if let photo, photo.localAssetStatus != .available {
+                    Text(photo.localAssetStatus.title)
+                        .font(.caption2)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(8)
+        }
+    }
+
+    private var icon: String {
+        guard let photo else { return "photo" }
+        if photo.localAssetStatus != .available {
+            return "photo.badge.exclamationmark"
+        }
+        if photo.cloudSyncStatus == .authExpired {
+            return "icloud.slash"
+        }
+        return "photo"
     }
 }
 

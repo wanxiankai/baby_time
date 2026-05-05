@@ -1,4 +1,5 @@
 import Foundation
+import Photos
 import SwiftUI
 import UIKit
 
@@ -68,8 +69,14 @@ final class AppStore: ObservableObject {
         save()
     }
 
-    func createChild(nickname: String, birthday: Date, gender: String, note: String) {
-        let child = ChildProfile(nickname: nickname.isEmpty ? "宝宝" : nickname, birthday: birthday, gender: gender, note: note)
+    func createChild(nickname: String, birthday: Date, gender: String, note: String, storageMode: MediaStorageMode = .localReference, cloudProvider: CloudProvider? = nil) {
+        let accountID: UUID?
+        if storageMode == .userCloudBackup, let cloudProvider {
+            accountID = connectCloudProvider(cloudProvider).id
+        } else {
+            accountID = nil
+        }
+        let child = ChildProfile(nickname: nickname.isEmpty ? "宝宝" : nickname, birthday: birthday, gender: gender, note: note, defaultMediaStorageMode: storageMode, cloudProviderAccountID: accountID)
         state.children.append(child)
         state.selectedChildID = child.id
         save()
@@ -82,6 +89,30 @@ final class AppStore: ObservableObject {
 
     func updateChild(_ child: ChildProfile) {
         replace(&state.children, child)
+        save()
+    }
+
+    @discardableResult
+    func connectCloudProvider(_ provider: CloudProvider) -> CloudProviderAccount {
+        if let existing = state.cloudProviderAccounts.first(where: { $0.provider == provider && $0.authorizationStatus == .authorized }) {
+            return existing
+        }
+        let account = CloudProviderAccount(provider: provider, displayName: "\(provider.title) 授权账号")
+        state.cloudProviderAccounts.append(account)
+        save()
+        return account
+    }
+
+    func updateSelectedChildStorageMode(_ storageMode: MediaStorageMode, provider: CloudProvider? = nil) {
+        guard let childID = state.selectedChildID,
+              let index = state.children.firstIndex(where: { $0.id == childID }) else { return }
+        state.children[index].defaultMediaStorageMode = storageMode
+        if storageMode == .userCloudBackup {
+            let account = connectCloudProvider(provider ?? .iCloudDrive)
+            state.children[index].cloudProviderAccountID = account.id
+        } else {
+            state.children[index].cloudProviderAccountID = nil
+        }
         save()
     }
 
@@ -114,16 +145,81 @@ final class AppStore: ObservableObject {
         if let data = image.pngData() {
             try? data.write(to: url)
         }
-        state.photos.append(MemoryPhoto(childID: childID, title: title, note: note, filename: filename, takenAt: date))
+        state.photos.append(MemoryPhoto(childID: childID, title: title, note: note, filename: filename, storageMode: .localReference, localAssetIdentifier: nil, localAssetStatus: .available, cloudSyncStatus: .notRequired, takenAt: date))
         save()
     }
 
-    func importPhoto(data: Data, title: String, note: String, takenAt: Date = Date()) {
+    func importPhoto(assetIdentifier: String, title: String, note: String) {
         guard let childID = state.selectedChildID else { return }
-        let filename = "photo-\(UUID().uuidString).jpg"
-        try? data.write(to: mediaDirectory.appendingPathComponent(filename))
-        state.photos.append(MemoryPhoto(childID: childID, title: title, note: note, filename: filename, takenAt: takenAt))
+        guard let child = selectedChild else { return }
+        let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil).firstObject
+        let takenAt = asset?.creationDate ?? Date()
+        var photo = MemoryPhoto(
+            childID: childID,
+            title: title,
+            note: note,
+            storageMode: child.defaultMediaStorageMode,
+            localAssetIdentifier: assetIdentifier,
+            localAssetStatus: asset == nil ? .missing : .available,
+            takenAt: takenAt
+        )
+        if child.defaultMediaStorageMode == .userCloudBackup {
+            guard let accountID = child.cloudProviderAccountID,
+                  let account = state.cloudProviderAccounts.first(where: { $0.id == accountID && $0.authorizationStatus == .authorized }) else {
+                photo.cloudSyncStatus = .authExpired
+                state.photos.append(photo)
+                errorMessage = "云端授权不可用，照片已先按本机索引保存。"
+                save()
+                return
+            }
+            photo.cloudProvider = account.provider
+            photo.cloudPath = cloudPath(for: photo, provider: account.provider)
+            photo.cloudSyncStatus = .pending
+        }
+        state.photos.append(photo)
         save()
+        if photo.storageMode == .userCloudBackup {
+            startCloudBackup(for: photo.id)
+        }
+    }
+
+    func markLocalAssetStatus(photoID: UUID, status: LocalAssetStatus) {
+        guard let index = state.photos.firstIndex(where: { $0.id == photoID }) else { return }
+        state.photos[index].localAssetStatus = status
+        save()
+    }
+
+    func markCloudSyncStatus(photoID: UUID, status: CloudSyncStatus) {
+        guard let index = state.photos.firstIndex(where: { $0.id == photoID }) else { return }
+        state.photos[index].cloudSyncStatus = status
+        if status == .synced {
+            state.photos[index].cloudSyncedAt = Date()
+            state.photos[index].cloudFileID = "cloud-\(photoID.uuidString)"
+        }
+        save()
+    }
+
+    func startCloudBackup(for photoID: UUID) {
+        guard let index = state.photos.firstIndex(where: { $0.id == photoID }) else { return }
+        guard state.photos[index].storageMode == .userCloudBackup else { return }
+        guard selectedCloudAccount?.authorizationStatus == .authorized else {
+            state.photos[index].cloudSyncStatus = .authExpired
+            save()
+            return
+        }
+        state.photos[index].cloudSyncStatus = .uploading
+        save()
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            await MainActor.run {
+                self?.markCloudSyncStatus(photoID: photoID, status: .synced)
+            }
+        }
+    }
+
+    var selectedCloudAccount: CloudProviderAccount? {
+        guard let accountID = selectedChild?.cloudProviderAccountID else { return nil }
+        return state.cloudProviderAccounts.first { $0.id == accountID }
     }
 
     func createCollection(title: String, note: String, photoIDs: [UUID], layoutTemplate: String) {
@@ -207,7 +303,40 @@ final class AppStore: ObservableObject {
     }
 
     func image(for photo: MemoryPhoto) -> UIImage? {
-        UIImage(contentsOfFile: mediaDirectory.appendingPathComponent(photo.filename).path)
+        guard let filename = photo.filename else { return nil }
+        return UIImage(contentsOfFile: mediaDirectory.appendingPathComponent(filename).path)
+    }
+
+    func requestImage(for photo: MemoryPhoto, targetSize: CGSize) async -> UIImage? {
+        if let image = image(for: photo) {
+            return image
+        }
+        guard photo.localAssetStatus == .available,
+              let identifier = photo.localAssetIdentifier else {
+            return nil
+        }
+        let results = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil)
+        guard let asset = results.firstObject else {
+            markLocalAssetStatus(photoID: photo.id, status: .missing)
+            return nil
+        }
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .opportunistic
+        options.resizeMode = .fast
+        options.isNetworkAccessAllowed = true
+        return await withCheckedContinuation { continuation in
+            var didResume = false
+            PHImageManager.default().requestImage(for: asset, targetSize: targetSize, contentMode: .aspectFill, options: options) { image, info in
+                let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                if let image, !degraded, !didResume {
+                    didResume = true
+                    continuation.resume(returning: image)
+                } else if image == nil, !didResume {
+                    didResume = true
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
     }
 
     func audioURL(for audio: AudioMemory) -> URL {
@@ -259,6 +388,13 @@ final class AppStore: ObservableObject {
         if let index = array.firstIndex(where: { $0.id == value.id }) {
             array[index] = value
         }
+    }
+
+    private func cloudPath(for photo: MemoryPhoto, provider: CloudProvider) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy/MM/yyyyMMdd_HHmmss"
+        let datedPath = formatter.string(from: photo.takenAt)
+        return "BabyTime/\(photo.childID.uuidString)/\(datedPath)_\(photo.id.uuidString).jpg"
     }
 
     private static func sampleImage(title: String) -> UIImage {

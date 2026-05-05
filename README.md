@@ -26,7 +26,7 @@ Baby Time 是一款面向家长的儿童成长记录 App。产品核心是以时
 - App Intents / Shortcuts：打开时间线、打开录音入口。
 - XCTest 单元测试覆盖核心本地业务逻辑。
 
-当前 iOS MVP 使用本地 JSON 文件保存业务数据，并把导入照片复制到 App Documents 目录，主要用于验证核心交互。后续需要改造为本机索引模式和授权云端备份模式：照片原文件不默认上传到 Baby Time 后端，也不默认进入 Baby Time 自有对象存储。
+当前 iOS MVP 使用本地 JSON 文件保存业务数据。真实相册导入会保存系统相册资产引用；样例照片和录音仍保存在 App Documents 目录，主要用于模拟器验证核心交互。照片原文件不默认上传到 Baby Time 后端，也不默认进入 Baby Time 自有对象存储。
 
 ## 技术栈
 

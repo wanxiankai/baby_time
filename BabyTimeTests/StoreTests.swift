@@ -28,6 +28,7 @@ final class StoreTests: XCTestCase {
         store.createChild(nickname: "小宝", birthday: birthday, gender: "未设置", note: "")
 
         XCTAssertEqual(store.selectedChild?.nickname, "小宝")
+        XCTAssertEqual(store.selectedChild?.defaultMediaStorageMode, .localReference)
         XCTAssertEqual(AppStore.bucket(for: birthday, birthday: birthday), .birth)
         XCTAssertEqual(AppStore.bucket(for: Calendar.current.date(byAdding: .day, value: 5, to: birthday)!, birthday: birthday), .week1)
         XCTAssertEqual(AppStore.bucket(for: Calendar.current.date(byAdding: .month, value: 6, to: birthday)!, birthday: birthday), .month6)
@@ -47,6 +48,40 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(store.currentCollections.count, 1)
         XCTAssertTrue(store.search("笑脸").contains(.photo(photo)))
         XCTAssertTrue(store.search("满月照").contains(.collection(store.currentCollections[0])))
+    }
+
+    func testLocalReferenceImportStoresAssetIdentifierAndMissingState() {
+        let store = makeStore()
+        store.register(email: "a@b.com", password: "password", displayName: "A")
+        store.createChild(nickname: "小宝", birthday: Date(), gender: "未设置", note: "", storageMode: .localReference)
+
+        store.importPhoto(assetIdentifier: "missing-local-asset", title: "本机索引照片", note: "")
+
+        let photo = try! XCTUnwrap(store.currentPhotos.first)
+        XCTAssertEqual(photo.storageMode, .localReference)
+        XCTAssertEqual(photo.localAssetIdentifier, "missing-local-asset")
+        XCTAssertEqual(photo.localAssetStatus, .missing)
+        XCTAssertEqual(photo.cloudSyncStatus, .notRequired)
+    }
+
+    func testCloudBackupModeCreatesProviderAndBackupState() async {
+        let store = makeStore()
+        store.register(email: "a@b.com", password: "password", displayName: "A")
+        store.createChild(nickname: "小宝", birthday: Date(), gender: "未设置", note: "", storageMode: .userCloudBackup, cloudProvider: .dropbox)
+
+        XCTAssertEqual(store.selectedChild?.defaultMediaStorageMode, .userCloudBackup)
+        XCTAssertEqual(store.selectedCloudAccount?.provider, .dropbox)
+
+        store.importPhoto(assetIdentifier: "missing-cloud-asset", title: "云端备份照片", note: "")
+        var photo = try! XCTUnwrap(store.currentPhotos.first)
+        XCTAssertEqual(photo.storageMode, .userCloudBackup)
+        XCTAssertEqual(photo.cloudProvider, .dropbox)
+        XCTAssertEqual(photo.cloudSyncStatus, .uploading)
+
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        photo = try! XCTUnwrap(store.currentPhotos.first)
+        XCTAssertEqual(photo.cloudSyncStatus, .synced)
+        XCTAssertNotNil(photo.cloudFileID)
     }
 
     func testTagsCategoriesAndBindings() {
