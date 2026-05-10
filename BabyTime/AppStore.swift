@@ -231,6 +231,15 @@ final class AppStore: ObservableObject {
         save()
     }
 
+    func updateCollection(_ collection: PhotoCollection, title: String, note: String, layoutTemplate: String, coverPhotoID: UUID?) {
+        guard let index = state.collections.firstIndex(where: { $0.id == collection.id }) else { return }
+        state.collections[index].title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "照片集" : title
+        state.collections[index].note = note
+        state.collections[index].layoutTemplate = layoutTemplate
+        state.collections[index].coverPhotoID = coverPhotoID ?? collection.photoIDs.first
+        save()
+    }
+
     func attach(tagID: UUID, toPhoto photoID: UUID) {
         guard let index = state.photos.firstIndex(where: { $0.id == photoID }) else { return }
         if !state.photos[index].tagIDs.contains(tagID) {
@@ -243,6 +252,30 @@ final class AppStore: ObservableObject {
         guard let index = state.photos.firstIndex(where: { $0.id == photoID }) else { return }
         if !state.photos[index].categoryIDs.contains(categoryID) {
             state.photos[index].categoryIDs.append(categoryID)
+        }
+        save()
+    }
+
+    func attach(tagID: UUID, toCollection collectionID: UUID) {
+        guard let index = state.collections.firstIndex(where: { $0.id == collectionID }) else { return }
+        if !state.collections[index].tagIDs.contains(tagID) {
+            state.collections[index].tagIDs.append(tagID)
+        }
+        save()
+    }
+
+    func attach(categoryID: UUID, toCollection collectionID: UUID) {
+        guard let index = state.collections.firstIndex(where: { $0.id == collectionID }) else { return }
+        if !state.collections[index].categoryIDs.contains(categoryID) {
+            state.collections[index].categoryIDs.append(categoryID)
+        }
+        save()
+    }
+
+    func attach(tagID: UUID, toAudio audioID: UUID) {
+        guard let index = state.audios.firstIndex(where: { $0.id == audioID }) else { return }
+        if !state.audios[index].tagIDs.contains(tagID) {
+            state.audios[index].tagIDs.append(tagID)
         }
         save()
     }
@@ -294,9 +327,22 @@ final class AppStore: ObservableObject {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return [] }
         var results: [SearchResult] = []
-        results += currentPhotos.filter { $0.title.lowercased().contains(q) || $0.note.lowercased().contains(q) }.map(SearchResult.photo)
-        results += currentCollections.filter { $0.title.lowercased().contains(q) || $0.note.lowercased().contains(q) }.map(SearchResult.collection)
-        results += currentAudios.filter { $0.title.lowercased().contains(q) || $0.note.lowercased().contains(q) || $0.kind.rawValue.lowercased().contains(q) }.map(SearchResult.audio)
+        results += currentPhotos.filter { photo in
+            photo.title.lowercased().contains(q)
+            || photo.note.lowercased().contains(q)
+            || taxonomyNames(tagIDs: photo.tagIDs, categoryIDs: photo.categoryIDs).contains { $0.contains(q) }
+        }.map(SearchResult.photo)
+        results += currentCollections.filter { collection in
+            collection.title.lowercased().contains(q)
+            || collection.note.lowercased().contains(q)
+            || taxonomyNames(tagIDs: collection.tagIDs, categoryIDs: collection.categoryIDs).contains { $0.contains(q) }
+        }.map(SearchResult.collection)
+        results += currentAudios.filter { audio in
+            audio.title.lowercased().contains(q)
+            || audio.note.lowercased().contains(q)
+            || audio.kind.rawValue.lowercased().contains(q)
+            || taxonomyNames(tagIDs: audio.tagIDs, categoryIDs: []).contains { $0.contains(q) }
+        }.map(SearchResult.audio)
         results += state.tags.filter { $0.name.lowercased().contains(q) }.map(SearchResult.tag)
         results += state.categories.filter { $0.name.lowercased().contains(q) }.map(SearchResult.category)
         return results
@@ -395,6 +441,16 @@ final class AppStore: ObservableObject {
         formatter.dateFormat = "yyyy/MM/yyyyMMdd_HHmmss"
         let datedPath = formatter.string(from: photo.takenAt)
         return "BabyTime/\(photo.childID.uuidString)/\(datedPath)_\(photo.id.uuidString).jpg"
+    }
+
+    private func taxonomyNames(tagIDs: [UUID], categoryIDs: [UUID]) -> [String] {
+        let tagNames = state.tags
+            .filter { tagIDs.contains($0.id) }
+            .map { $0.name.lowercased() }
+        let categoryNames = state.categories
+            .filter { categoryIDs.contains($0.id) }
+            .map { $0.name.lowercased() }
+        return tagNames + categoryNames
     }
 
     private static func sampleImage(title: String) -> UIImage {

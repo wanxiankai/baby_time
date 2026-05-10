@@ -50,6 +50,31 @@ final class StoreTests: XCTestCase {
         XCTAssertTrue(store.search("满月照").contains(.collection(store.currentCollections[0])))
     }
 
+    func testCollectionCanBeEditedAndTaggedLocally() {
+        let store = makeStore()
+        store.register(email: "a@b.com", password: "password", displayName: "A")
+        store.createChild(nickname: "小宝", birthday: Date(), gender: "未设置", note: "")
+        store.addSamplePhoto(title: "封面照片", note: "")
+        store.addSamplePhoto(title: "第二张", note: "")
+
+        let photos = store.currentPhotos
+        store.createCollection(title: "旧标题", note: "", photoIDs: photos.map(\.id), layoutTemplate: "grid")
+        store.addTag(name: "满月")
+        let collection = try! XCTUnwrap(store.currentCollections.first)
+        let cover = try! XCTUnwrap(photos.first)
+        let tag = try! XCTUnwrap(store.state.tags.first)
+
+        store.updateCollection(collection, title: "满月合集", note: "本地备注", layoutTemplate: "cover", coverPhotoID: cover.id)
+        store.attach(tagID: tag.id, toCollection: collection.id)
+
+        let updated = try! XCTUnwrap(store.currentCollections.first)
+        XCTAssertEqual(updated.title, "满月合集")
+        XCTAssertEqual(updated.note, "本地备注")
+        XCTAssertEqual(updated.layoutTemplate, "cover")
+        XCTAssertEqual(updated.coverPhotoID, cover.id)
+        XCTAssertTrue(store.search("满月").contains(.collection(updated)))
+    }
+
     func testLocalReferenceImportStoresAssetIdentifierAndMissingState() {
         let store = makeStore()
         store.register(email: "a@b.com", password: "password", displayName: "A")
@@ -100,6 +125,7 @@ final class StoreTests: XCTestCase {
         let updated = try! XCTUnwrap(store.currentPhotos.first)
         XCTAssertEqual(updated.tagIDs, [tag.id])
         XCTAssertEqual(updated.categoryIDs, [category.id])
+        XCTAssertTrue(store.search("牙牙学语").contains(.photo(updated)))
     }
 
     func testSearchFindsTaxonomy() {
@@ -109,5 +135,27 @@ final class StoreTests: XCTestCase {
 
         XCTAssertEqual(store.search("生日").first?.typeLabel, "Tag")
         XCTAssertEqual(store.search("语言").first?.typeLabel, "分类")
+    }
+
+    func testAudioCanBindToPhotoAndPersistLocally() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("babytime-audio-\(UUID().uuidString).m4a")
+        try Data([1, 2, 3, 4]).write(to: url)
+
+        let storageURL = FileManager.default.temporaryDirectory.appendingPathComponent("babytime-test-\(UUID().uuidString).json")
+        let store = AppStore(storageURL: storageURL)
+        store.register(email: "a@b.com", password: "password", displayName: "A")
+        store.createChild(nickname: "小宝", birthday: Date(), gender: "未设置", note: "")
+        store.addSamplePhoto(title: "照片", note: "")
+        let photo = try XCTUnwrap(store.currentPhotos.first)
+
+        store.saveAudioFile(from: url, title: "第一句", note: "本地音频", kind: .parentMessage, duration: 3, bindTo: (.photo, photo.id))
+
+        let audio = try XCTUnwrap(store.currentAudios.first)
+        XCTAssertEqual(store.audios(for: .photo, targetID: photo.id), [audio])
+
+        let reloaded = AppStore(storageURL: storageURL)
+        reloaded.selectChild(try XCTUnwrap(reloaded.state.children.first))
+        XCTAssertEqual(reloaded.currentAudios.first?.title, "第一句")
+        XCTAssertEqual(reloaded.audios(for: .photo, targetID: photo.id).first?.note, "本地音频")
     }
 }

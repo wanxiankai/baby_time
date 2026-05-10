@@ -1,6 +1,7 @@
 import AVFoundation
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct RootView: View {
     @EnvironmentObject private var store: AppStore
@@ -287,8 +288,10 @@ struct TimelineDetailView: View {
 
 struct AlbumView: View {
     @EnvironmentObject private var store: AppStore
-    @State private var pickerItem: PhotosPickerItem?
+    @State private var pickerItems: [PhotosPickerItem] = []
     @State private var collectionTitle = "满月照"
+    @State private var collectionNote = ""
+    @State private var collectionTemplate = "grid"
     @State private var selectedPhotoIDs: Set<UUID> = []
 
     var body: some View {
@@ -301,14 +304,20 @@ struct AlbumView: View {
                         Label("添加样例照片", systemImage: "sparkles")
                     }
 
-                    PhotosPicker(selection: $pickerItem, matching: .images) {
-                        Label("从系统相册导入", systemImage: "photo")
+                    PhotosPicker(selection: $pickerItems, maxSelectionCount: 20, matching: .images) {
+                        Label("从系统相册导入单张或多张", systemImage: "photo.on.rectangle")
                     }
-                    .onChange(of: pickerItem) { _, newValue in
-                        guard let newValue else { return }
-                        if let identifier = newValue.itemIdentifier {
-                            store.importPhoto(assetIdentifier: identifier, title: "导入照片", note: "")
-                        } else {
+                    .onChange(of: pickerItems) { _, newItems in
+                        guard !newItems.isEmpty else { return }
+                        var importedCount = 0
+                        for (offset, item) in newItems.enumerated() {
+                            if let identifier = item.itemIdentifier {
+                                store.importPhoto(assetIdentifier: identifier, title: newItems.count == 1 ? "导入照片" : "导入照片 \(offset + 1)", note: "")
+                                importedCount += 1
+                            }
+                        }
+                        pickerItems.removeAll()
+                        if importedCount == 0 {
                             store.errorMessage = "系统未返回相册资产标识，无法按本机索引导入。"
                         }
                     }
@@ -347,6 +356,12 @@ struct AlbumView: View {
 
                 Section("创建照片集") {
                     TextField("照片集标题", text: $collectionTitle)
+                    TextField("照片集备注", text: $collectionNote, axis: .vertical)
+                    Picker("模板", selection: $collectionTemplate) {
+                        Text("网格").tag("grid")
+                        Text("封面大图").tag("cover")
+                        Text("时间顺序").tag("timeline")
+                    }
                     ForEach(store.currentPhotos) { photo in
                         Button {
                             if selectedPhotoIDs.contains(photo.id) {
@@ -365,8 +380,9 @@ struct AlbumView: View {
                         .buttonStyle(.plain)
                     }
                     Button("保存照片集") {
-                        store.createCollection(title: collectionTitle, note: "", photoIDs: Array(selectedPhotoIDs), layoutTemplate: "grid")
+                        store.createCollection(title: collectionTitle, note: collectionNote, photoIDs: Array(selectedPhotoIDs), layoutTemplate: collectionTemplate)
                         selectedPhotoIDs.removeAll()
+                        collectionNote = ""
                     }
                     .disabled(selectedPhotoIDs.isEmpty)
                 }
@@ -406,7 +422,12 @@ struct PhotoDetailView: View {
     @EnvironmentObject private var store: AppStore
     let photo: MemoryPhoto
 
+    var currentPhoto: MemoryPhoto {
+        store.state.photos.first { $0.id == photo.id } ?? photo
+    }
+
     var body: some View {
+        let photo = currentPhoto
         List {
             Section {
                 PhotoFullImage(photo: photo)
@@ -467,14 +488,23 @@ struct PhotoDetailView: View {
 struct CollectionDetailView: View {
     @EnvironmentObject private var store: AppStore
     let collection: PhotoCollection
+    @State private var title = ""
+    @State private var note = ""
+    @State private var layoutTemplate = "grid"
+    @State private var coverPhotoID: UUID?
+
+    var currentCollection: PhotoCollection {
+        store.state.collections.first { $0.id == collection.id } ?? collection
+    }
 
     var photos: [MemoryPhoto] {
-        collection.photoIDs.compactMap { id in
+        currentCollection.photoIDs.compactMap { id in
             store.state.photos.first { $0.id == id }
         }
     }
 
     var body: some View {
+        let collection = currentCollection
         List {
             Section("照片") {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 8)], spacing: 8) {
@@ -490,6 +520,27 @@ struct CollectionDetailView: View {
                 Text(collection.note.isEmpty ? "暂无备注" : collection.note)
                     .foregroundStyle(collection.note.isEmpty ? .secondary : .primary)
             }
+            Section("编辑照片集") {
+                TextField("标题", text: $title)
+                TextField("备注", text: $note, axis: .vertical)
+                Picker("模板", selection: $layoutTemplate) {
+                    Text("网格").tag("grid")
+                    Text("封面大图").tag("cover")
+                    Text("时间顺序").tag("timeline")
+                }
+                Picker("封面", selection: $coverPhotoID) {
+                    Text("默认第一张").tag(UUID?.none)
+                    ForEach(photos) { photo in
+                        Text(photo.title.isEmpty ? "照片" : photo.title).tag(UUID?.some(photo.id))
+                    }
+                }
+                Button {
+                    store.updateCollection(collection, title: title, note: note, layoutTemplate: layoutTemplate, coverPhotoID: coverPhotoID)
+                } label: {
+                    Label("保存照片集信息", systemImage: "square.and.arrow.down")
+                }
+            }
+            CollectionTaxonomyPicker(collection: collection)
             Section("绑定音频") {
                 let audios = store.audios(for: .collection, targetID: collection.id)
                 if audios.isEmpty {
@@ -501,6 +552,12 @@ struct CollectionDetailView: View {
             }
         }
         .navigationTitle(collection.title)
+        .onAppear {
+            title = collection.title
+            note = collection.note
+            layoutTemplate = collection.layoutTemplate
+            coverPhotoID = collection.coverPhotoID
+        }
     }
 }
 
@@ -510,7 +567,8 @@ struct RecorderView: View {
     @State private var title = "给宝宝的一句话"
     @State private var note = ""
     @State private var kind: AudioKind = .parentMessage
-    @State private var bindToCollectionID: UUID?
+    @State private var bindTarget = "none"
+    @State private var isImportingAudio = false
 
     var body: some View {
         NavigationStack {
@@ -532,19 +590,40 @@ struct RecorderView: View {
                             Text(item.rawValue).tag(item)
                         }
                     }
-                    Picker("绑定照片集", selection: $bindToCollectionID) {
-                        Text("不绑定").tag(UUID?.none)
-                        ForEach(store.currentCollections) { collection in
-                            Text(collection.title).tag(UUID?.some(collection.id))
+                    Picker("绑定对象", selection: $bindTarget) {
+                        Text("不绑定").tag("none")
+                        if !store.currentPhotos.isEmpty {
+                            Section("照片") {
+                                ForEach(store.currentPhotos) { photo in
+                                    Text(photo.title.isEmpty ? "照片" : photo.title).tag("photo:\(photo.id.uuidString)")
+                                }
+                            }
+                        }
+                        if !store.currentCollections.isEmpty {
+                            Section("照片集") {
+                                ForEach(store.currentCollections) { collection in
+                                    Text(collection.title).tag("collection:\(collection.id.uuidString)")
+                                }
+                            }
                         }
                     }
+                }
+
+                Section("导入音频") {
+                    Button {
+                        isImportingAudio = true
+                    } label: {
+                        Label("导入本地音频文件", systemImage: "waveform.badge.plus")
+                    }
+                    Text("导入的音频会复制到 App 本地 Documents 目录，并写入本地 JSON 索引。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 if case .finished(let url, let duration) = recorder.state {
                     Section {
                         Button {
-                            let target: (AudioTargetType, UUID)? = bindToCollectionID.map { (.collection, $0) }
-                            store.saveAudioFile(from: url, title: title, note: note, kind: kind, duration: duration, bindTo: target)
+                            store.saveAudioFile(from: url, title: title, note: note, kind: kind, duration: duration, bindTo: selectedAudioTarget())
                             recorder.reset()
                         } label: {
                             Label("保存录音", systemImage: "square.and.arrow.down")
@@ -557,7 +636,36 @@ struct RecorderView: View {
                 }
             }
             .navigationTitle("录音")
+            .fileImporter(isPresented: $isImportingAudio, allowedContentTypes: [.audio]) { result in
+                guard case .success(let url) = result else { return }
+                Task {
+                    let didStart = url.startAccessingSecurityScopedResource()
+                    defer {
+                        if didStart {
+                            url.stopAccessingSecurityScopedResource()
+                        }
+                    }
+                    store.saveAudioFile(from: url, title: title, note: note, kind: kind, duration: await audioDuration(for: url), bindTo: selectedAudioTarget())
+                }
+            }
         }
+    }
+
+    private func selectedAudioTarget() -> (AudioTargetType, UUID)? {
+        let parts = bindTarget.split(separator: ":", maxSplits: 1).map(String.init)
+        guard parts.count == 2, let id = UUID(uuidString: parts[1]) else { return nil }
+        if parts[0] == "photo" {
+            return (.photo, id)
+        }
+        if parts[0] == "collection" {
+            return (.collection, id)
+        }
+        return nil
+    }
+
+    private func audioDuration(for url: URL) async -> TimeInterval {
+        let seconds = (try? await AVURLAsset(url: url).load(.duration).seconds) ?? 0
+        return seconds.isFinite ? seconds : 0
     }
 
     @ViewBuilder
@@ -722,6 +830,30 @@ struct TaxonomyPicker: View {
     }
 }
 
+struct CollectionTaxonomyPicker: View {
+    @EnvironmentObject private var store: AppStore
+    let collection: PhotoCollection
+
+    var body: some View {
+        Section("Tag") {
+            ForEach(store.state.tags) { tag in
+                Button("#\(tag.name)") {
+                    store.attach(tagID: tag.id, toCollection: collection.id)
+                }
+            }
+        }
+        Section("分类") {
+            ForEach(store.state.categories) { category in
+                Button {
+                    store.attach(categoryID: category.id, toCollection: collection.id)
+                } label: {
+                    Label(category.name, systemImage: category.icon)
+                }
+            }
+        }
+    }
+}
+
 struct PhotoRow: View {
     @EnvironmentObject private var store: AppStore
     let photo: MemoryPhoto
@@ -853,8 +985,26 @@ struct AudioList: View {
                     Text("\(audio.kind.rawValue) · \(audio.duration.formattedDuration)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    let tags = store.state.tags.filter { audio.tagIDs.contains($0.id) }
+                    if !tags.isEmpty {
+                        Text(tags.map { "#\($0.name)" }.joined(separator: " "))
+                            .font(.caption2)
+                            .foregroundStyle(BabyTimeTheme.teal)
+                    }
                 }
                 Spacer()
+                if !store.state.tags.isEmpty {
+                    Menu {
+                        ForEach(store.state.tags) { tag in
+                            Button("#\(tag.name)") {
+                                store.attach(tagID: tag.id, toAudio: audio.id)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "tag")
+                            .font(.title3)
+                    }
+                }
                 Button {
                     player.play(url: store.audioURL(for: audio))
                 } label: {
