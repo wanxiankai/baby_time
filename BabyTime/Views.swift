@@ -3,17 +3,15 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - Root
+
 struct RootView: View {
     @EnvironmentObject private var store: AppStore
 
     var body: some View {
         Group {
             if store.isAuthenticated {
-                if store.selectedChild == nil {
-                    ChildSetupView()
-                } else {
-                    MainTabView()
-                }
+                MainTabView()
             } else {
                 AuthView()
             }
@@ -26,6 +24,8 @@ struct RootView: View {
         .foregroundStyle(BabyTimeTheme.ink)
     }
 }
+
+// MARK: - Auth
 
 struct AuthView: View {
     @EnvironmentObject private var store: AppStore
@@ -83,7 +83,7 @@ struct AuthView: View {
                     }
                     .buttonStyle(PrimaryBabyTimeButton())
 
-                    Text("隐私优先：正式版可只记录系统相册引用，或备份到你授权的云盘；Baby Time 默认不托管儿童照片原文件。")
+                    Text("隐私优先：Baby Time 只记录系统相册中照片的引用，不会上传或保存你的照片原文件。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -97,21 +97,22 @@ struct AuthView: View {
     }
 }
 
+// MARK: - Child Setup
+
 struct ChildSetupView: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
     @State private var nickname = "小宝"
     @State private var birthday = Calendar.current.date(byAdding: .month, value: -6, to: Date()) ?? Date()
     @State private var gender = "未设置"
     @State private var note = ""
-    @State private var storageMode: MediaStorageMode = .localReference
-    @State private var cloudProvider: CloudProvider = .iCloudDrive
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("隐私说明") {
-                    Label("Baby Time 默认不托管儿童照片原文件", systemImage: "lock.shield")
-                    Text("你可以只在本机记录系统相册引用，也可以把照片备份到自己授权的云端存储。")
+                    Label("Baby Time 不会上传或保存你的照片", systemImage: "lock.shield")
+                    Text("App 只在本机记录系统相册中照片的引用与节点关联关系。照片原文件始终在你自己手机的相册中。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -127,36 +128,12 @@ struct ChildSetupView: View {
                     TextField("备注", text: $note, axis: .vertical)
                 }
 
-                Section("媒体保存方式") {
-                    Picker("保存方式", selection: $storageMode) {
-                        ForEach(MediaStorageMode.allCases) { mode in
-                            Text(mode.title).tag(mode)
-                        }
-                    }
-                    ForEach(MediaStorageMode.allCases) { mode in
-                        if mode == storageMode {
-                            Text(mode.subtitle)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    if storageMode == .userCloudBackup {
-                        Picker("云端服务", selection: $cloudProvider) {
-                            ForEach(CloudProvider.allCases) { provider in
-                                Label(provider.title, systemImage: provider.icon).tag(provider)
-                            }
-                        }
-                        Text("当前 MVP 使用模拟授权状态，后续接入真实云端 Provider SDK。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
                 if !store.state.children.isEmpty {
                     Section("已有档案") {
                         ForEach(store.state.children) { child in
                             Button(child.nickname) {
                                 store.selectChild(child)
+                                dismiss()
                             }
                         }
                     }
@@ -166,13 +143,16 @@ struct ChildSetupView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
-                        store.createChild(nickname: nickname, birthday: birthday, gender: gender, note: note, storageMode: storageMode, cloudProvider: storageMode == .userCloudBackup ? cloudProvider : nil)
+                        store.createChild(nickname: nickname, birthday: birthday, gender: gender, note: note)
+                        dismiss()
                     }
                 }
             }
         }
     }
 }
+
+// MARK: - Tabs
 
 struct MainTabView: View {
     @EnvironmentObject private var store: AppStore
@@ -199,92 +179,446 @@ struct MainTabView: View {
     }
 }
 
+// MARK: - Timeline (首页)
+
 struct TimelineView: View {
     @EnvironmentObject private var store: AppStore
+    @State private var showAddNode = false
+    @State private var showChildSetup = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVStack(spacing: 12) {
-                    ForEach(store.timeline()) { summary in
-                        NavigationLink {
-                            TimelineDetailView(bucket: summary.bucket)
-                        } label: {
-                            HStack(spacing: 14) {
-                                PhotoThumb(photo: summary.coverPhoto)
-                                    .frame(width: 68, height: 68)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(summary.bucket.rawValue)
-                                        .font(.headline)
-                                    Text("\(summary.photoCount) 张照片 · \(summary.collectionCount) 个照片集 · \(summary.audioCount) 段声音")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                    if let updatedAt = summary.updatedAt {
-                                        Text(updatedAt, style: .date)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                Spacer(minLength: 8)
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .padding(12)
-                            .background(BabyTimeTheme.card, in: RoundedRectangle(cornerRadius: 8))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(BabyTimeTheme.border, lineWidth: 1)
-                            }
-                            .shadow(color: BabyTimeTheme.teal.opacity(0.08), radius: 8, y: 3)
-                        }
-                        .buttonStyle(.plain)
-                    }
+            Group {
+                if !store.hasSelectedChild {
+                    emptyChildHint
+                } else {
+                    timelineList
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .scrollIndicators(.visible)
             .background(BabyTimeTheme.page)
             .navigationTitle(store.selectedChild?.nickname ?? "时间线")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        store.addSamplePhoto(title: "今日成长")
-                    } label: {
-                        Label("添加样例照片", systemImage: "plus")
+                    if store.hasSelectedChild {
+                        Button {
+                            showAddNode = true
+                        } label: {
+                            Label("新增时间节点", systemImage: "plus.circle")
+                        }
+                        .accessibilityIdentifier("addTimelineNodeButton")
                     }
+                }
+            }
+            .sheet(isPresented: $showAddNode) {
+                AddTimelineNodeSheet()
+            }
+            .sheet(isPresented: $showChildSetup) {
+                ChildSetupView()
+            }
+        }
+    }
+
+    private var emptyChildHint: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "person.crop.circle.badge.plus")
+                .font(.system(size: 56))
+                .foregroundStyle(BabyTimeTheme.teal)
+            Text("先创建一个孩子档案")
+                .font(.headline)
+            Text("创建后会自动生成出生第一天到一周岁的成长时间节点。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            Button {
+                showChildSetup = true
+            } label: {
+                Label("创建孩子档案", systemImage: "plus")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PrimaryBabyTimeButton())
+            .padding(.horizontal, 32)
+            Spacer()
+        }
+    }
+
+    private var timelineList: some View {
+        ScrollView {
+            LazyVStack(spacing: 14) {
+                ForEach(store.timelineSummaries()) { summary in
+                    NavigationLink {
+                        TimelineNodeDetailView(node: summary.node)
+                    } label: {
+                        TimelineNodeCard(summary: summary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("timelineNodeRow-\(summary.node.id.uuidString)")
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .scrollIndicators(.visible)
+    }
+}
+
+struct TimelineNodeCard: View {
+    let summary: TimelineNodeSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(summary.node.name)
+                        .font(.headline)
+                        .foregroundStyle(BabyTimeTheme.ink)
+                    Text(summary.node.date.formatted(date: .long, time: .omitted))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if summary.audioCount > 0 {
+                    Label("\(summary.audioCount)", systemImage: "waveform")
+                        .font(.caption)
+                        .foregroundStyle(BabyTimeTheme.teal)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+
+            if summary.totalPhotoCount == 0 {
+                emptyPlaceholder
+            } else {
+                previewRow
+                if summary.totalPhotoCount > 3 {
+                    Text("共 \(summary.totalPhotoCount) 张照片")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(14)
+        .background(BabyTimeTheme.card, in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(BabyTimeTheme.border, lineWidth: 1)
+        }
+        .shadow(color: BabyTimeTheme.teal.opacity(0.08), radius: 8, y: 3)
+    }
+
+    private var emptyPlaceholder: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "plus.circle.dashed")
+                .font(.title2)
+                .foregroundStyle(BabyTimeTheme.teal)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("去添加")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(BabyTimeTheme.ink)
+                Text("还没有记录，点击为这个节点添加照片或录音")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(BabyTimeTheme.tealSoft.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var previewRow: some View {
+        HStack(spacing: 8) {
+            ForEach(summary.previewPhotos) { photo in
+                PhotoThumb(photo: photo)
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            // 不足 3 张时补占位，保持视觉对齐。
+            ForEach(0..<max(0, 3 - summary.previewPhotos.count), id: \.self) { _ in
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(BabyTimeTheme.tealSoft.opacity(0.25))
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(1, contentMode: .fit)
+            }
+        }
+    }
+}
+
+// MARK: - 新增时间节点弹窗
+
+struct AddTimelineNodeSheet: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String = ""
+    @State private var date: Date = Date()
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("节点信息") {
+                    TextField("名称（例如：抓周）", text: $name)
+                        .accessibilityIdentifier("nodeNameField")
+                    DatePicker("日期", selection: $date, displayedComponents: .date)
+                }
+
+                Section {
+                    Text("新增的节点会自动按时间正确插入到已有时间线中。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("新增时间节点")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("确定") {
+                        if store.addTimelineNode(name: name, date: date) != nil {
+                            dismiss()
+                        }
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("confirmAddNodeButton")
                 }
             }
         }
     }
 }
 
-struct TimelineDetailView: View {
-    @EnvironmentObject private var store: AppStore
-    let bucket: TimelineBucket
+// MARK: - 时间节点详情页
 
-    var photos: [MemoryPhoto] {
-        guard let child = store.selectedChild else { return [] }
-        return store.currentPhotos.filter { AppStore.bucket(for: $0.takenAt, birthday: child.birthday) == bucket }
+struct TimelineNodeDetailView: View {
+    @EnvironmentObject private var store: AppStore
+    let node: TimelineNode
+
+    @State private var pickerItems: [PhotosPickerItem] = []
+    @State private var deletingPhotoID: UUID?
+    @State private var fullscreenPhoto: MemoryPhoto?
+    @State private var enabledRemoveMode: Bool = false
+
+    private var currentNode: TimelineNode {
+        store.state.nodes.first { $0.id == node.id } ?? node
+    }
+
+    private var photos: [MemoryPhoto] {
+        store.photos(forNode: node.id)
+    }
+
+    private var nodeAudios: [AudioMemory] {
+        store.audios(forNode: node.id)
     }
 
     var body: some View {
         List {
-            Section("照片") {
-                ForEach(photos) { photo in
-                    NavigationLink {
-                        PhotoDetailView(photo: photo)
-                    } label: {
-                        PhotoRow(photo: photo)
+            Section("节点信息") {
+                LabeledContent("名称", value: currentNode.name)
+                LabeledContent("时间", value: currentNode.date.formatted(date: .long, time: .omitted))
+                if currentNode.isDefault {
+                    Label("系统默认节点", systemImage: "sparkles")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section {
+                PhotosPicker(selection: $pickerItems, maxSelectionCount: 20, matching: .images) {
+                    Label("从系统相册添加照片", systemImage: "photo.on.rectangle")
+                }
+                .onChange(of: pickerItems) { _, newItems in
+                    guard !newItems.isEmpty else { return }
+                    for (offset, item) in newItems.enumerated() {
+                        if let identifier = item.itemIdentifier {
+                            store.importPhoto(
+                                assetIdentifier: identifier,
+                                title: newItems.count == 1 ? currentNode.name : "\(currentNode.name) \(offset + 1)",
+                                note: "",
+                                nodeID: currentNode.id
+                            )
+                        }
                     }
+                    pickerItems.removeAll()
+                }
+                Button {
+                    store.addSamplePhoto(title: currentNode.name, note: "节点 \(currentNode.name) 的样例照片", date: currentNode.date, nodeID: currentNode.id)
+                } label: {
+                    Label("添加样例照片（仅模拟器）", systemImage: "sparkles")
+                }
+            } header: {
+                Text("添加照片")
+            } footer: {
+                Text("Baby Time 不会保存或上传你的照片，仅在本机记录它在系统相册中的位置。")
+            }
+
+            if photos.isEmpty {
+                Section("照片集") {
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 8) {
+                            Image(systemName: "photo.on.rectangle.angled")
+                                .font(.title)
+                                .foregroundStyle(BabyTimeTheme.teal)
+                            Text("还没有照片，从上方添加吧")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 12)
+                }
+            } else {
+                Section {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
+                        ForEach(photos) { photo in
+                            DeletableNodePhotoCell(
+                                photo: photo,
+                                removeMode: enabledRemoveMode,
+                                onTap: {
+                                    if enabledRemoveMode {
+                                        deletingPhotoID = photo.id
+                                    } else {
+                                        fullscreenPhoto = photo
+                                    }
+                                },
+                                onLongPress: {
+                                    withAnimation {
+                                        enabledRemoveMode = true
+                                    }
+                                },
+                                onRemove: {
+                                    deletingPhotoID = photo.id
+                                }
+                            )
+                        }
+                    }
+                    if enabledRemoveMode {
+                        Button {
+                            withAnimation { enabledRemoveMode = false }
+                        } label: {
+                            Label("完成", systemImage: "checkmark.circle")
+                        }
+                    }
+                } header: {
+                    HStack {
+                        Text("照片集（\(photos.count)）")
+                        Spacer()
+                        if enabledRemoveMode {
+                            Text("点击照片上的叉可解除关联")
+                                .font(.caption2)
+                                .foregroundStyle(BabyTimeTheme.coral)
+                        }
+                    }
+                } footer: {
+                    Text("长按任一张照片可进入解除关联模式。点击照片可查看大图。")
+                }
+            }
+
+            Section("音频") {
+                if nodeAudios.isEmpty {
+                    Text("暂无音频，可在录音页录制并绑定到本节点。")
+                        .foregroundStyle(.secondary)
+                } else {
+                    AudioList(audios: nodeAudios)
                 }
             }
         }
-        .navigationTitle(bucket.rawValue)
+        .navigationTitle(currentNode.name)
+        .sheet(item: $fullscreenPhoto) { photo in
+            PhotoFullscreenViewer(photo: photo)
+        }
+        .alert(
+            "确认解除关联？",
+            isPresented: Binding(
+                get: { deletingPhotoID != nil },
+                set: { if !$0 { deletingPhotoID = nil } }
+            )
+        ) {
+            Button("取消", role: .cancel) { deletingPhotoID = nil }
+            Button("确定", role: .destructive) {
+                if let id = deletingPhotoID {
+                    store.removePhotoFromNode(photoID: id, nodeID: currentNode.id)
+                }
+                deletingPhotoID = nil
+            }
+        } message: {
+            Text("此操作只会移除当前节点与该照片的关联关系，不会删除你系统相册中的原始照片。")
+        }
     }
 }
+
+/// 节点详情中的照片单元：支持点击查看大图、长按进入删除模式、删除模式下右上角显示叉。
+struct DeletableNodePhotoCell: View {
+    let photo: MemoryPhoto
+    let removeMode: Bool
+    let onTap: () -> Void
+    let onLongPress: () -> Void
+    let onRemove: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            PhotoThumb(photo: photo)
+                .aspectRatio(1, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .contentShape(RoundedRectangle(cornerRadius: 8))
+                .onTapGesture {
+                    onTap()
+                }
+                .onLongPressGesture(minimumDuration: 0.4) {
+                    onLongPress()
+                }
+                .overlay {
+                    if removeMode {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(BabyTimeTheme.coral, lineWidth: 2)
+                    }
+                }
+
+            if removeMode {
+                Button {
+                    onRemove()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, BabyTimeTheme.coral)
+                        .font(.title3)
+                        .padding(4)
+                }
+                .accessibilityIdentifier("removePhotoButton-\(photo.id.uuidString)")
+                .offset(x: 6, y: -6)
+            }
+        }
+    }
+}
+
+/// 简单的全屏看图。
+struct PhotoFullscreenViewer: View {
+    @Environment(\.dismiss) private var dismiss
+    let photo: MemoryPhoto
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                PhotoFullImage(photo: photo)
+                    .padding()
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { dismiss() }
+                        .foregroundStyle(.white)
+                }
+            }
+            .toolbarBackground(.black, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+        }
+    }
+}
+
+// MARK: - Album
 
 struct AlbumView: View {
     @EnvironmentObject private var store: AppStore
@@ -297,7 +631,7 @@ struct AlbumView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("导入") {
+                Section {
                     Button {
                         store.addSamplePhoto(title: "模拟器照片", note: "用于没有相册素材时快速体验。")
                     } label: {
@@ -305,7 +639,7 @@ struct AlbumView: View {
                     }
 
                     PhotosPicker(selection: $pickerItems, maxSelectionCount: 20, matching: .images) {
-                        Label("从系统相册导入单张或多张", systemImage: "photo.on.rectangle")
+                        Label("从系统相册导入", systemImage: "photo.on.rectangle")
                     }
                     .onChange(of: pickerItems) { _, newItems in
                         guard !newItems.isEmpty else { return }
@@ -321,37 +655,10 @@ struct AlbumView: View {
                             store.errorMessage = "系统未返回相册资产标识，无法按本机索引导入。"
                         }
                     }
-                    Text("当前导入会保存系统相册引用；若宝宝档案启用云端备份，会模拟创建备份任务。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section("保存方式") {
-                    if let child = store.selectedChild {
-                        LabeledContent("当前宝宝", value: child.defaultMediaStorageMode.title)
-                        if let account = store.selectedCloudAccount {
-                            LabeledContent("云端服务", value: "\(account.provider.title) · \(account.authorizationStatus.title)")
-                        }
-                    }
-                    Picker("切换方式", selection: Binding(
-                        get: { store.selectedChild?.defaultMediaStorageMode ?? .localReference },
-                        set: { store.updateSelectedChildStorageMode($0, provider: .iCloudDrive) }
-                    )) {
-                        ForEach(MediaStorageMode.allCases) { mode in
-                            Text(mode.title).tag(mode)
-                        }
-                    }
-                    if store.selectedChild?.defaultMediaStorageMode == .userCloudBackup {
-                        Menu {
-                            ForEach(CloudProvider.allCases) { provider in
-                                Button(provider.title) {
-                                    store.updateSelectedChildStorageMode(.userCloudBackup, provider: provider)
-                                }
-                            }
-                        } label: {
-                            Label("选择云端服务", systemImage: "cloud")
-                        }
-                    }
+                } header: {
+                    Text("导入")
+                } footer: {
+                    Text("App 只在本机记录照片在系统相册中的引用，照片原文件不会被上传或复制。导入时会自动归属到最匹配的时间节点。")
                 }
 
                 Section("创建照片集") {
@@ -435,27 +742,14 @@ struct PhotoDetailView: View {
             Section("信息") {
                 LabeledContent("标题", value: photo.title)
                 LabeledContent("拍摄时间", value: photo.takenAt.formatted(date: .abbreviated, time: .omitted))
+                if let nodeID = photo.nodeID,
+                   let node = store.state.nodes.first(where: { $0.id == nodeID }) {
+                    LabeledContent("所属节点", value: node.name)
+                }
                 Text(photo.note)
             }
-            Section("媒体保存") {
-                LabeledContent("保存方式", value: photo.storageMode.title)
-                LabeledContent("本机状态", value: photo.localAssetStatus.title)
-                if let provider = photo.cloudProvider {
-                    LabeledContent("云端服务", value: provider.title)
-                    LabeledContent("备份状态", value: photo.cloudSyncStatus.title)
-                    if let cloudPath = photo.cloudPath {
-                        Text(cloudPath)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if photo.cloudSyncStatus != .synced {
-                        Button {
-                            store.startCloudBackup(for: photo.id)
-                        } label: {
-                            Label("重新备份", systemImage: "arrow.clockwise")
-                        }
-                    }
-                }
+            Section("本机状态") {
+                LabeledContent("状态", value: photo.localAssetStatus.title)
                 Menu {
                     Button("标记原照片不存在") {
                         store.markLocalAssetStatus(photoID: photo.id, status: .missing)
@@ -561,6 +855,8 @@ struct CollectionDetailView: View {
     }
 }
 
+// MARK: - Recorder
+
 struct RecorderView: View {
     @EnvironmentObject private var store: AppStore
     @StateObject private var recorder = RecorderService()
@@ -592,6 +888,13 @@ struct RecorderView: View {
                     }
                     Picker("绑定对象", selection: $bindTarget) {
                         Text("不绑定").tag("none")
+                        if !store.currentNodes.isEmpty {
+                            Section("时间节点") {
+                                ForEach(store.currentNodes) { node in
+                                    Text(node.name).tag("node:\(node.id.uuidString)")
+                                }
+                            }
+                        }
                         if !store.currentPhotos.isEmpty {
                             Section("照片") {
                                 ForEach(store.currentPhotos) { photo in
@@ -654,13 +957,12 @@ struct RecorderView: View {
     private func selectedAudioTarget() -> (AudioTargetType, UUID)? {
         let parts = bindTarget.split(separator: ":", maxSplits: 1).map(String.init)
         guard parts.count == 2, let id = UUID(uuidString: parts[1]) else { return nil }
-        if parts[0] == "photo" {
-            return (.photo, id)
+        switch parts[0] {
+        case "photo": return (.photo, id)
+        case "collection": return (.collection, id)
+        case "node": return (.node, id)
+        default: return nil
         }
-        if parts[0] == "collection" {
-            return (.collection, id)
-        }
-        return nil
     }
 
     private func audioDuration(for url: URL) async -> TimeInterval {
@@ -690,6 +992,8 @@ struct RecorderView: View {
     }
 }
 
+// MARK: - Search
+
 struct SearchScreen: View {
     @EnvironmentObject private var store: AppStore
     @State private var query = ""
@@ -699,7 +1003,7 @@ struct SearchScreen: View {
             List {
                 let results = store.search(query)
                 if query.isEmpty {
-                    Text("搜索照片备注、照片集标题、tag、分类和音频。")
+                    Text("搜索时间节点、照片备注、照片集标题、tag、分类和音频。")
                         .foregroundStyle(.secondary)
                 } else if results.isEmpty {
                     Text("没有找到相关内容")
@@ -724,10 +1028,13 @@ struct SearchScreen: View {
     }
 }
 
+// MARK: - Settings
+
 struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
     @State private var tagName = "笑脸"
     @State private var categoryName = "语言发展"
+    @State private var showChildSetup = false
 
     var body: some View {
         NavigationStack {
@@ -758,8 +1065,10 @@ struct SettingsView: View {
                             }
                         }
                     }
-                    NavigationLink("新增孩子档案") {
-                        ChildSetupView()
+                    Button {
+                        showChildSetup = true
+                    } label: {
+                        Label("新增孩子档案", systemImage: "plus")
                     }
                 }
 
@@ -789,22 +1098,23 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("隐私与媒体保存") {
-                    if let child = store.selectedChild {
-                        LabeledContent("当前模式", value: child.defaultMediaStorageMode.title)
-                    }
-                    if let account = store.selectedCloudAccount {
-                        LabeledContent("云端服务", value: "\(account.provider.title) · \(account.authorizationStatus.title)")
-                    }
-                    Text("照片默认不上传到 Baby Time 后端。本机索引模式只记录系统相册引用；授权云端备份模式会把照片备份到你授权的云端目录。")
+                Section {
+                    Text("Baby Time 不会上传或保存你的照片。App 中保存的只是系统相册中照片的引用以及节点关联关系。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                } header: {
+                    Text("隐私")
                 }
             }
             .navigationTitle("我的")
+            .sheet(isPresented: $showChildSetup) {
+                ChildSetupView()
+            }
         }
     }
 }
+
+// MARK: - Reusable components
 
 struct TaxonomyPicker: View {
     @EnvironmentObject private var store: AppStore
@@ -871,11 +1181,9 @@ struct PhotoRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    Label(photo.storageMode.title, systemImage: photo.storageMode == .localReference ? "iphone" : "cloud")
+                    Label("本机相册", systemImage: "iphone")
                     if photo.localAssetStatus != .available {
                         Text(photo.localAssetStatus.title)
-                    } else if photo.storageMode == .userCloudBackup {
-                        Text(photo.cloudSyncStatus.title)
                     }
                 }
                 .font(.caption2)
@@ -903,7 +1211,7 @@ struct PhotoFullImage: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }
-        .task(id: "\(photo.id)-\(photo.localAssetStatus.rawValue)-\(photo.cloudSyncStatus.rawValue)") {
+        .task(id: "\(photo.id)-\(photo.localAssetStatus.rawValue)") {
             image = nil
             image = await store.requestImage(for: photo, targetSize: CGSize(width: 1100, height: 1100))
         }
@@ -927,7 +1235,7 @@ struct PhotoThumb: View {
                 PhotoMissingPlaceholder(photo: nil)
             }
         }
-        .task(id: photo.map { "\($0.id)-\($0.localAssetStatus.rawValue)-\($0.cloudSyncStatus.rawValue)" }) {
+        .task(id: photo.map { "\($0.id)-\($0.localAssetStatus.rawValue)" }) {
             guard let photo else {
                 image = nil
                 return
@@ -964,9 +1272,6 @@ struct PhotoMissingPlaceholder: View {
         guard let photo else { return "photo" }
         if photo.localAssetStatus != .available {
             return "photo.badge.exclamationmark"
-        }
-        if photo.cloudSyncStatus == .authExpired {
-            return "icloud.slash"
         }
         return "photo"
     }
