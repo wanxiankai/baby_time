@@ -20,9 +20,12 @@ final class AppStore: ObservableObject {
         try? FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
     }
 
+    // MARK: - Derived state
+
     var isAuthenticated: Bool { state.activeEmail != nil }
     var activeAccount: Account? { state.accounts.first { $0.email == state.activeEmail } }
     var selectedChild: ChildProfile? { state.children.first { $0.id == state.selectedChildID } }
+    var hasSelectedChild: Bool { selectedChild != nil }
 
     var currentPhotos: [MemoryPhoto] {
         guard let childID = state.selectedChildID else { return [] }
@@ -39,6 +42,14 @@ final class AppStore: ObservableObject {
         return state.audios.filter { $0.childID == childID }.sorted { $0.createdAt > $1.createdAt }
     }
 
+    /// 当前孩子的所有时间线节点，按时间正序（早 → 晚）。
+    var currentNodes: [TimelineNode] {
+        guard let childID = state.selectedChildID else { return [] }
+        return state.nodes.filter { $0.childID == childID }.sorted { $0.date < $1.date }
+    }
+
+    // MARK: - Auth
+
     func register(email: String, password: String, displayName: String) {
         let normalized = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard normalized.contains("@"), password.count >= 6 else {
@@ -51,6 +62,8 @@ final class AppStore: ObservableObject {
         }
         state.accounts.append(Account(email: normalized, displayName: displayName.isEmpty ? "家长" : displayName, password: password))
         state.activeEmail = normalized
+        // 登录完成后默认回到首页 Tab。
+        selectedTab = .timeline
         save()
     }
 
@@ -61,6 +74,8 @@ final class AppStore: ObservableObject {
             return
         }
         state.activeEmail = account.email
+        // 登录完成后默认回到首页 Tab。
+        selectedTab = .timeline
         save()
     }
 
@@ -69,16 +84,20 @@ final class AppStore: ObservableObject {
         save()
     }
 
-    func createChild(nickname: String, birthday: Date, gender: String, note: String, storageMode: MediaStorageMode = .localReference, cloudProvider: CloudProvider? = nil) {
-        let accountID: UUID?
-        if storageMode == .userCloudBackup, let cloudProvider {
-            accountID = connectCloudProvider(cloudProvider).id
-        } else {
-            accountID = nil
-        }
-        let child = ChildProfile(nickname: nickname.isEmpty ? "宝宝" : nickname, birthday: birthday, gender: gender, note: note, defaultMediaStorageMode: storageMode, cloudProviderAccountID: accountID)
+    // MARK: - Child profile
+
+    func createChild(nickname: String, birthday: Date, gender: String, note: String) {
+        let child = ChildProfile(
+            nickname: nickname.isEmpty ? "宝宝" : nickname,
+            birthday: birthday,
+            gender: gender,
+            note: note
+        )
         state.children.append(child)
         state.selectedChildID = child.id
+        // 创建孩子档案后自动生成预设时间节点。
+        let presets = TimelineNode.defaultNodes(for: child)
+        state.nodes.append(contentsOf: presets)
         save()
     }
 
@@ -92,29 +111,117 @@ final class AppStore: ObservableObject {
         save()
     }
 
+    // MARK: - Timeline nodes
+
+    /// 新增一个时间节点。重名或同一天同名时不会重复创建。
     @discardableResult
-    func connectCloudProvider(_ provider: CloudProvider) -> CloudProviderAccount {
-        if let existing = state.cloudProviderAccounts.first(where: { $0.provider == provider && $0.authorizationStatus == .authorized }) {
+    func addTimelineNode(name: String, date: Date) -> TimelineNode? {
+        guard let childID = state.selectedChildID else {
+            errorMessage = "请先创建孩子档案。"
+            return nil
+        }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            errorMessage = "请填写节点名称。"
+            return nil
+        }
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: date)
+        if let existing = state.nodes.first(where: {
+            $0.childID == childID
+            && $0.name == trimmed
+            && calendar.isDate($0.date, inSameDayAs: dayStart)
+        }) {
+            errorMessage = "已存在同名节点。"
             return existing
         }
-        let account = CloudProviderAccount(provider: provider, displayName: "\(provider.title) 授权账号")
-        state.cloudProviderAccounts.append(account)
+        let node = TimelineNode(childID: childID, name: trimmed, date: date, isDefault: false)
+        state.nodes.append(node)
         save()
-        return account
+        return node
     }
 
-    func updateSelectedChildStorageMode(_ storageMode: MediaStorageMode, provider: CloudProvider? = nil) {
-        guard let childID = state.selectedChildID,
-              let index = state.children.firstIndex(where: { $0.id == childID }) else { return }
-        state.children[index].defaultMediaStorageMode = storageMode
-        if storageMode == .userCloudBackup {
-            let account = connectCloudProvider(provider ?? .iCloudDrive)
-            state.children[index].cloudProviderAccountID = account.id
-        } else {
-            state.children[index].cloudProviderAccountID = nil
+    func updateTimelineNode(_ node: TimelineNode, name: String, date: Date) {
+        guard let index = state.nodes.firstIndex(where: { $0.id == node.id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        state.nodes[index].name = trimmed.isEmpty ? state.nodes[index].name : trimmed
+        state.nodes[index].date = date
+        save()
+    }
+
+    /// 删除一个时间节点。与该节点关联的照片/音频不会被删除，只会把 nodeID 置空。
+    func deleteTimelineNode(_ node: TimelineNode) {
+        state.nodes.removeAll { $0.id == node.id }
+        for index in state.photos.indices where state.photos[index].nodeID == node.id {
+            state.photos[index].nodeID = nil
+        }
+        for index in state.audios.indices where state.audios[index].nodeID == node.id {
+            state.audios[index].nodeID = nil
         }
         save()
     }
+
+    func photos(forNode nodeID: UUID) -> [MemoryPhoto] {
+        state.photos
+            .filter { $0.nodeID == nodeID }
+            .sorted { $0.takenAt < $1.takenAt }
+    }
+
+    func audios(forNode nodeID: UUID) -> [AudioMemory] {
+        state.audios
+            .filter { $0.nodeID == nodeID }
+            .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    /// 解除照片与节点的关联（不会删除照片记录本身，也不会删除系统相册原图）。
+    func removePhotoFromNode(photoID: UUID, nodeID: UUID) {
+        guard let index = state.photos.firstIndex(where: { $0.id == photoID }) else { return }
+        guard state.photos[index].nodeID == nodeID else { return }
+        state.photos[index].nodeID = nil
+        save()
+    }
+
+    /// 把已有的照片挂到某个节点上（如导入时未自动归属，可后续手动指定）。
+    func attachPhoto(photoID: UUID, toNode nodeID: UUID) {
+        guard let index = state.photos.firstIndex(where: { $0.id == photoID }) else { return }
+        state.photos[index].nodeID = nodeID
+        save()
+    }
+
+    func attachAudio(audioID: UUID, toNode nodeID: UUID) {
+        guard let index = state.audios.firstIndex(where: { $0.id == audioID }) else { return }
+        state.audios[index].nodeID = nodeID
+        save()
+    }
+
+    /// 时间线首页聚合：每个节点 + 前 3 张照片 + 总数 + 音频数。
+    func timelineSummaries() -> [TimelineNodeSummary] {
+        currentNodes.map { node in
+            let nodePhotos = photos(forNode: node.id)
+            let preview = Array(nodePhotos.prefix(3))
+            let nodeAudios = audios(forNode: node.id)
+            let latest = (nodePhotos.map(\.createdAt) + nodeAudios.map(\.createdAt)).max()
+            return TimelineNodeSummary(
+                node: node,
+                previewPhotos: preview,
+                totalPhotoCount: nodePhotos.count,
+                audioCount: nodeAudios.count,
+                updatedAt: latest
+            )
+        }
+    }
+
+    /// 根据日期匹配最合适的节点：取该日期 ≤ 节点日期且差值最小的节点；
+    /// 若所有节点都在该日期之前，则取最晚的一个节点（兜底）。
+    func bestNode(for date: Date) -> TimelineNode? {
+        let nodes = currentNodes
+        guard !nodes.isEmpty else { return nil }
+        let later = nodes.filter { $0.date >= Calendar.current.startOfDay(for: date) }
+        if let first = later.first { return first }
+        return nodes.last
+    }
+
+    // MARK: - Tags & categories
 
     func addTag(name: String) {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -134,10 +241,14 @@ final class AppStore: ObservableObject {
         save()
     }
 
-    func addSamplePhoto(title: String = "成长照片", note: String = "一张模拟器样例照片", date: Date = Date()) {
+    // MARK: - Photos
+
+    /// 模拟器场景下生成一张样例照片，并自动按当前日期归属到最匹配的节点。
+    @discardableResult
+    func addSamplePhoto(title: String = "成长照片", note: String = "一张模拟器样例照片", date: Date = Date(), nodeID: UUID? = nil) -> MemoryPhoto? {
         guard let childID = state.selectedChildID else {
             errorMessage = "请先创建孩子档案。"
-            return
+            return nil
         }
         let filename = "photo-\(UUID().uuidString).png"
         let url = mediaDirectory.appendingPathComponent(filename)
@@ -145,42 +256,41 @@ final class AppStore: ObservableObject {
         if let data = image.pngData() {
             try? data.write(to: url)
         }
-        state.photos.append(MemoryPhoto(childID: childID, title: title, note: note, filename: filename, storageMode: .localReference, localAssetIdentifier: nil, localAssetStatus: .available, cloudSyncStatus: .notRequired, takenAt: date))
-        save()
-    }
-
-    func importPhoto(assetIdentifier: String, title: String, note: String) {
-        guard let childID = state.selectedChildID else { return }
-        guard let child = selectedChild else { return }
-        let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil).firstObject
-        let takenAt = asset?.creationDate ?? Date()
-        var photo = MemoryPhoto(
+        let resolvedNodeID = nodeID ?? bestNode(for: date)?.id
+        let photo = MemoryPhoto(
             childID: childID,
+            nodeID: resolvedNodeID,
             title: title,
             note: note,
-            storageMode: child.defaultMediaStorageMode,
+            filename: filename,
+            localAssetIdentifier: nil,
+            localAssetStatus: .available,
+            takenAt: date
+        )
+        state.photos.append(photo)
+        save()
+        return photo
+    }
+
+    /// 从系统相册导入：只记录资产引用，不复制原文件。
+    @discardableResult
+    func importPhoto(assetIdentifier: String, title: String, note: String, nodeID: UUID? = nil) -> MemoryPhoto? {
+        guard let childID = state.selectedChildID else { return nil }
+        let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil).firstObject
+        let takenAt = asset?.creationDate ?? Date()
+        let resolvedNodeID = nodeID ?? bestNode(for: takenAt)?.id
+        let photo = MemoryPhoto(
+            childID: childID,
+            nodeID: resolvedNodeID,
+            title: title,
+            note: note,
             localAssetIdentifier: assetIdentifier,
             localAssetStatus: asset == nil ? .missing : .available,
             takenAt: takenAt
         )
-        if child.defaultMediaStorageMode == .userCloudBackup {
-            guard let accountID = child.cloudProviderAccountID,
-                  let account = state.cloudProviderAccounts.first(where: { $0.id == accountID && $0.authorizationStatus == .authorized }) else {
-                photo.cloudSyncStatus = .authExpired
-                state.photos.append(photo)
-                errorMessage = "云端授权不可用，照片已先按本机索引保存。"
-                save()
-                return
-            }
-            photo.cloudProvider = account.provider
-            photo.cloudPath = cloudPath(for: photo, provider: account.provider)
-            photo.cloudSyncStatus = .pending
-        }
         state.photos.append(photo)
         save()
-        if photo.storageMode == .userCloudBackup {
-            startCloudBackup(for: photo.id)
-        }
+        return photo
     }
 
     func markLocalAssetStatus(photoID: UUID, status: LocalAssetStatus) {
@@ -189,45 +299,21 @@ final class AppStore: ObservableObject {
         save()
     }
 
-    func markCloudSyncStatus(photoID: UUID, status: CloudSyncStatus) {
-        guard let index = state.photos.firstIndex(where: { $0.id == photoID }) else { return }
-        state.photos[index].cloudSyncStatus = status
-        if status == .synced {
-            state.photos[index].cloudSyncedAt = Date()
-            state.photos[index].cloudFileID = "cloud-\(photoID.uuidString)"
-        }
-        save()
-    }
-
-    func startCloudBackup(for photoID: UUID) {
-        guard let index = state.photos.firstIndex(where: { $0.id == photoID }) else { return }
-        guard state.photos[index].storageMode == .userCloudBackup else { return }
-        guard selectedCloudAccount?.authorizationStatus == .authorized else {
-            state.photos[index].cloudSyncStatus = .authExpired
-            save()
-            return
-        }
-        state.photos[index].cloudSyncStatus = .uploading
-        save()
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 800_000_000)
-            await MainActor.run {
-                self?.markCloudSyncStatus(photoID: photoID, status: .synced)
-            }
-        }
-    }
-
-    var selectedCloudAccount: CloudProviderAccount? {
-        guard let accountID = selectedChild?.cloudProviderAccountID else { return nil }
-        return state.cloudProviderAccounts.first { $0.id == accountID }
-    }
+    // MARK: - Collections
 
     func createCollection(title: String, note: String, photoIDs: [UUID], layoutTemplate: String) {
         guard let childID = state.selectedChildID, !photoIDs.isEmpty else {
             errorMessage = "请先选择照片。"
             return
         }
-        state.collections.append(PhotoCollection(childID: childID, title: title.isEmpty ? "新的照片集" : title, note: note, photoIDs: photoIDs, coverPhotoID: photoIDs.first, layoutTemplate: layoutTemplate))
+        state.collections.append(PhotoCollection(
+            childID: childID,
+            title: title.isEmpty ? "新的照片集" : title,
+            note: note,
+            photoIDs: photoIDs,
+            coverPhotoID: photoIDs.first,
+            layoutTemplate: layoutTemplate
+        ))
         save()
     }
 
@@ -239,6 +325,8 @@ final class AppStore: ObservableObject {
         state.collections[index].coverPhotoID = coverPhotoID ?? collection.photoIDs.first
         save()
     }
+
+    // MARK: - Tag / Category attachment
 
     func attach(tagID: UUID, toPhoto photoID: UUID) {
         guard let index = state.photos.firstIndex(where: { $0.id == photoID }) else { return }
@@ -280,7 +368,9 @@ final class AppStore: ObservableObject {
         save()
     }
 
-    func saveAudioFile(from url: URL, title: String, note: String, kind: AudioKind, duration: TimeInterval, bindTo target: (AudioTargetType, UUID)?) {
+    // MARK: - Audio
+
+    func saveAudioFile(from url: URL, title: String, note: String, kind: AudioKind, duration: TimeInterval, bindTo target: (AudioTargetType, UUID)?, nodeID: UUID? = nil) {
         guard let childID = state.selectedChildID else { return }
         let filename = "audio-\(UUID().uuidString).m4a"
         let destination = mediaDirectory.appendingPathComponent(filename)
@@ -291,7 +381,24 @@ final class AppStore: ObservableObject {
             errorMessage = "音频保存失败。"
             return
         }
-        let audio = AudioMemory(childID: childID, title: title.isEmpty ? "新的声音记录" : title, note: note, filename: filename, duration: duration, kind: kind)
+        // 如果绑定对象是 node，优先记录到 audio.nodeID；
+        // 否则若调用方主动传了 nodeID 也写入；都没有就按当前时间猜测最合适的节点。
+        var resolvedNodeID = nodeID
+        if resolvedNodeID == nil, let target, target.0 == .node {
+            resolvedNodeID = target.1
+        }
+        if resolvedNodeID == nil {
+            resolvedNodeID = bestNode(for: Date())?.id
+        }
+        let audio = AudioMemory(
+            childID: childID,
+            nodeID: resolvedNodeID,
+            title: title.isEmpty ? "新的声音记录" : title,
+            note: note,
+            filename: filename,
+            duration: duration,
+            kind: kind
+        )
         state.audios.append(audio)
         if let target {
             state.bindings.append(AudioBinding(audioID: audio.id, targetType: target.0, targetID: target.1))
@@ -310,23 +417,13 @@ final class AppStore: ObservableObject {
         return state.audios.filter { ids.contains($0.id) }
     }
 
-    func timeline() -> [TimelineSummary] {
-        guard let child = selectedChild else { return [] }
-        return TimelineBucket.allCases.map { bucket in
-            let photos = currentPhotos.filter { Self.bucket(for: $0.takenAt, birthday: child.birthday) == bucket }
-            let collections = currentCollections.filter { collection in
-                collection.photoIDs.contains { id in photos.contains(where: { $0.id == id }) }
-            }
-            let audios = currentAudios.filter { Self.bucket(for: $0.createdAt, birthday: child.birthday) == bucket }
-            let latest = (photos.map(\.createdAt) + collections.map(\.createdAt) + audios.map(\.createdAt)).max()
-            return TimelineSummary(bucket: bucket, photoCount: photos.count, collectionCount: collections.count, audioCount: audios.count, coverPhoto: photos.first, updatedAt: latest)
-        }
-    }
+    // MARK: - Search
 
     func search(_ query: String) -> [SearchResult] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return [] }
         var results: [SearchResult] = []
+        results += currentNodes.filter { $0.name.lowercased().contains(q) }.map(SearchResult.node)
         results += currentPhotos.filter { photo in
             photo.title.lowercased().contains(q)
             || photo.note.lowercased().contains(q)
@@ -347,6 +444,8 @@ final class AppStore: ObservableObject {
         results += state.categories.filter { $0.name.lowercased().contains(q) }.map(SearchResult.category)
         return results
     }
+
+    // MARK: - Image loading
 
     func image(for photo: MemoryPhoto) -> UIImage? {
         guard let filename = photo.filename else { return nil }
@@ -389,6 +488,8 @@ final class AppStore: ObservableObject {
         mediaDirectory.appendingPathComponent(audio.filename)
     }
 
+    // MARK: - Persistence
+
     func save() {
         do {
             let data = try JSONEncoder.babyTime.encode(state)
@@ -396,30 +497,6 @@ final class AppStore: ObservableObject {
         } catch {
             errorMessage = "本地保存失败。"
         }
-    }
-
-    static func bucket(for date: Date, birthday: Date, calendar: Calendar = .current) -> TimelineBucket {
-        let start = calendar.startOfDay(for: birthday)
-        let current = calendar.startOfDay(for: date)
-        let days = calendar.dateComponents([.day], from: start, to: current).day ?? 0
-        let months = calendar.dateComponents([.month], from: start, to: current).month ?? 0
-        if days <= 0 { return .birth }
-        if days <= 7 { return .week1 }
-        if months < 2 { return .month1 }
-        if months < 3 { return .month2 }
-        if months < 4 { return .month3 }
-        if months < 5 { return .month4 }
-        if months < 6 { return .month5 }
-        if months < 7 { return .month6 }
-        if months < 8 { return .month7 }
-        if months < 9 { return .month8 }
-        if months < 10 { return .month9 }
-        if months < 11 { return .month10 }
-        if months < 12 { return .month11 }
-        if months < 13 { return .month12 }
-        if months < 24 { return .year1 }
-        if months < 36 { return .year2 }
-        return .later
     }
 
     private static func load(from url: URL) -> PersistedState {
@@ -434,13 +511,6 @@ final class AppStore: ObservableObject {
         if let index = array.firstIndex(where: { $0.id == value.id }) {
             array[index] = value
         }
-    }
-
-    private func cloudPath(for photo: MemoryPhoto, provider: CloudProvider) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy/MM/yyyyMMdd_HHmmss"
-        let datedPath = formatter.string(from: photo.takenAt)
-        return "BabyTime/\(photo.childID.uuidString)/\(datedPath)_\(photo.id.uuidString).jpg"
     }
 
     private func taxonomyNames(tagIDs: [UUID], categoryIDs: [UUID]) -> [String] {
