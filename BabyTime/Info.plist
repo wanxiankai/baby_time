@@ -24,6 +24,8 @@
 	<string>Baby Time 需要麦克风权限来保存孩子声音和父母留言。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Baby Time 需要照片权限来导入孩子成长照片。</string>
+	<key>UILaunchScreen</key>
+	<dict/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

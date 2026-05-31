@@ -36,63 +36,73 @@ struct AuthView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Image("AppLogo")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 80, height: 80)
-                            .clipShape(RoundedRectangle(cornerRadius: 18))
-                            .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
-                        Text("Baby Time")
-                            .font(.system(size: 38, weight: .bold))
-                            .foregroundStyle(BabyTimeTheme.ink)
-                        Text("带声音的成长档案")
-                            .foregroundStyle(BabyTimeTheme.teal)
-                    }
-
-                    Picker("模式", selection: $isRegistering) {
-                        Text("注册").tag(true)
-                        Text("登录").tag(false)
-                    }
-                    .pickerStyle(.segmented)
-
-                    TextField("邮箱", text: $email)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.emailAddress)
-                        .textFieldStyle(.roundedBorder)
-
-                    SecureField("密码", text: $password)
-                        .textFieldStyle(.roundedBorder)
-
-                    if isRegistering {
-                        TextField("称呼", text: $displayName)
-                            .textFieldStyle(.roundedBorder)
-                    }
-
-                    Button {
-                        if isRegistering {
-                            store.register(email: email, password: password, displayName: displayName)
-                        } else {
-                            store.login(email: email, password: password)
+            GeometryReader { proxy in
+                ScrollView {
+                    VStack(spacing: 24) {
+                        VStack(spacing: 8) {
+                            Image("AppLogo")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 88, height: 88)
+                                .clipShape(RoundedRectangle(cornerRadius: 20))
+                                .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
+                            Text("Baby Time")
+                                .font(.system(size: 38, weight: .bold))
+                                .foregroundStyle(BabyTimeTheme.ink)
+                            Text("带声音的成长档案")
+                                .foregroundStyle(BabyTimeTheme.teal)
                         }
-                    } label: {
-                        Label(isRegistering ? "创建账号" : "登录", systemImage: "person.crop.circle.badge.checkmark")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(PrimaryBabyTimeButton())
+                        .frame(maxWidth: .infinity)
+                        .multilineTextAlignment(.center)
 
-                    Text("隐私优先：Baby Time 只记录系统相册中照片的引用，不会上传或保存你的照片原文件。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                        VStack(spacing: 20) {
+                            Picker("模式", selection: $isRegistering) {
+                                Text("注册").tag(true)
+                                Text("登录").tag(false)
+                            }
+                            .pickerStyle(.segmented)
+
+                            TextField("邮箱", text: $email)
+                                .textInputAutocapitalization(.never)
+                                .keyboardType(.emailAddress)
+                                .textFieldStyle(.roundedBorder)
+
+                            SecureField("密码", text: $password)
+                                .textFieldStyle(.roundedBorder)
+
+                            if isRegistering {
+                                TextField("称呼", text: $displayName)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            Button {
+                                if isRegistering {
+                                    store.register(email: email, password: password, displayName: displayName)
+                                } else {
+                                    store.login(email: email, password: password)
+                                }
+                            } label: {
+                                Label(isRegistering ? "创建账号" : "登录", systemImage: "person.crop.circle.badge.checkmark")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(PrimaryBabyTimeButton())
+
+                            Text("隐私优先：Baby Time 只记录系统相册中照片的引用，不会上传或保存你的照片原文件。")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: 360)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 32)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: proxy.size.height, alignment: .center)
                 }
-                .padding(24)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .scrollDismissesKeyboard(.interactively)
+                .background(BabyTimeTheme.heroGradient.ignoresSafeArea())
             }
-            .scrollDismissesKeyboard(.interactively)
-            .background(BabyTimeTheme.heroGradient.ignoresSafeArea())
         }
     }
 }
